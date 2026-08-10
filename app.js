@@ -625,22 +625,71 @@ function applyVideoToScreenMesh(root, screenTex) {
     return;
   }
 
-  screen.material = new THREE.MeshStandardMaterial({
+  // GLB screen has no UVs (POSITION+NORMAL only) — video can't map without them
+  ensurePlanarUVs(screen);
+
+  screen.material = new THREE.MeshBasicMaterial({
     name: "Mat_Screen_Video",
     map: screenTex,
-    emissiveMap: screenTex,
-    emissive: new THREE.Color(0xffffff),
-    emissiveIntensity: 1.15,
-    color: new THREE.Color(0xffffff),
-    roughness: 0.55,
-    metalness: 0,
-    toneMapped: true,
+    color: 0xffffff,
+    toneMapped: false, // keep trailer bright under ACES
     side: THREE.DoubleSide,
   });
   screen.castShadow = false;
   screen.receiveShadow = false;
   screen.renderOrder = 2;
+  // Nudge toward seats so it sits in front of the frame/wall
+  screen.position.z -= 0.02;
   console.log("[3D Theater] Video material applied to Screen_Surface");
+}
+
+/** Build 0–1 UVs from local X/Y bounds (screen faces the seats on XY). */
+function ensurePlanarUVs(mesh) {
+  const geom = mesh.geometry;
+  if (!geom) return;
+
+  if (geom.getAttribute("uv")) {
+    console.log("[3D Theater] Screen already has UVs");
+    return;
+  }
+
+  const pos = geom.getAttribute("position");
+  if (!pos) return;
+
+  geom.computeBoundingBox();
+  const box = geom.boundingBox;
+  const dx = box.max.x - box.min.x || 1;
+  const dy = box.max.y - box.min.y || 1;
+  const dz = box.max.z - box.min.z || 1;
+
+  // Pick the two largest axes as the screen plane (handles any orientation)
+  const axes = [
+    { axis: "x", size: dx },
+    { axis: "y", size: dy },
+    { axis: "z", size: dz },
+  ].sort((a, b) => b.size - a.size);
+  const uAxis = axes[0].axis;
+  const vAxis = axes[1].axis;
+  const uMin = box.min[uAxis];
+  const vMin = box.min[vAxis];
+  const uSize = axes[0].size;
+  const vSize = axes[1].size;
+
+  const uvs = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const u =
+      uAxis === "x" ? pos.getX(i) : uAxis === "y" ? pos.getY(i) : pos.getZ(i);
+    const v =
+      vAxis === "x" ? pos.getX(i) : vAxis === "y" ? pos.getY(i) : pos.getZ(i);
+    uvs[i * 2] = (u - uMin) / uSize;
+    uvs[i * 2 + 1] = (v - vMin) / vSize;
+  }
+
+  geom.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+  geom.attributes.uv.needsUpdate = true;
+  console.log(
+    `[3D Theater] Generated screen UVs on ${uAxis}/${vAxis} (${pos.count} verts)`
+  );
 }
 
 function collectSeats(root) {
@@ -1082,7 +1131,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid3";
+const ASSET_VERSION = "vid4";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
