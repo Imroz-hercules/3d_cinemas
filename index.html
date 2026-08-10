@@ -14,7 +14,11 @@
       href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=view2" />
+    <link rel="stylesheet" href="styles.css?v=vid1" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.css"
+    />
   </head>
   <body>
     <div id="canvas-wrap" aria-hidden="true">
@@ -49,66 +53,68 @@
     </main>
 
     <aside id="booking-panel" class="booking-panel" hidden>
-      <div class="panel-head">
-        <p class="panel-kicker">Ticket booking</p>
-        <h2 class="panel-title">Pick a seat</h2>
-        <p class="panel-copy">
-          Tap a free seat — the camera flies to that row and shows the screen
-          from your view.
-        </p>
-      </div>
-
-      <div class="booking-steps" aria-hidden="true">
-        <span class="step is-active" id="step-pick">1 · Choose</span>
-        <span class="step-line"></span>
-        <span class="step" id="step-view">2 · Preview</span>
-        <span class="step-line"></span>
-        <span class="step" id="step-book">3 · Book</span>
-      </div>
-
-      <div class="availability" id="availability">
-        <span id="avail-free">— free</span>
-        <span class="avail-sep">·</span>
-        <span id="avail-taken">— taken</span>
-      </div>
-
-      <div class="legend">
-        <span><i class="dot free"></i> Free</span>
-        <span><i class="dot selected"></i> Selected</span>
-        <span><i class="dot taken"></i> Taken</span>
-      </div>
-
-      <div class="theater-map">
-        <div class="screen-banner">
-          <span class="screen-arc"></span>
-          <span class="screen-label">SCREEN</span>
+      <div class="booking-panel-content" id="booking-panel-content">
+        <div class="panel-head">
+          <p class="panel-kicker">Ticket booking</p>
+          <h2 class="panel-title">Pick a seat</h2>
+          <p class="panel-copy">
+            Tap a free seat — the camera flies to that row and shows the screen
+            from your view.
+          </p>
         </div>
-        <div id="seat-map" class="seat-map" role="list"></div>
-      </div>
 
-      <div class="camera-status" id="camera-status" hidden>
-        <span class="status-pulse"></span>
-        <span id="camera-status-text">Moving to your seat…</span>
-      </div>
+        <div class="booking-steps" aria-hidden="true">
+          <span class="step is-active" id="step-pick">1 · Choose</span>
+          <span class="step-line"></span>
+          <span class="step" id="step-view">2 · Preview</span>
+          <span class="step-line"></span>
+          <span class="step" id="step-book">3 · Book</span>
+        </div>
 
-      <div class="preview-card" id="preview-card" hidden>
-        <div class="preview-top">
-          <div>
-            <p class="preview-label">Your seat view</p>
-            <p class="preview-seat" id="preview-seat">—</p>
+        <div class="availability" id="availability">
+          <span id="avail-free">— free</span>
+          <span class="avail-sep">·</span>
+          <span id="avail-taken">— taken</span>
+        </div>
+
+        <div class="legend">
+          <span><i class="dot free"></i> Free</span>
+          <span><i class="dot selected"></i> Selected</span>
+          <span><i class="dot taken"></i> Taken</span>
+        </div>
+
+        <div class="theater-map">
+          <div class="screen-banner">
+            <span class="screen-arc"></span>
+            <span class="screen-label">SCREEN</span>
           </div>
-          <p class="preview-price" id="preview-price"></p>
+          <div id="seat-map" class="seat-map" role="list"></div>
         </div>
-        <p class="preview-note" id="preview-note">
-          Camera settles at eye level looking at the screen from this seat.
-        </p>
-        <div class="preview-actions">
-          <button type="button" id="btn-refocus" class="cta ghost book-secondary">
-            Refocus view
-          </button>
-          <button type="button" id="btn-confirm" class="cta primary book-btn">
-            Book this seat
-          </button>
+
+        <div class="camera-status" id="camera-status" hidden>
+          <span class="status-pulse"></span>
+          <span id="camera-status-text">Moving to your seat…</span>
+        </div>
+
+        <div class="preview-card" id="preview-card" hidden>
+          <div class="preview-top">
+            <div>
+              <p class="preview-label">Your seat view</p>
+              <p class="preview-seat" id="preview-seat">—</p>
+            </div>
+            <p class="preview-price" id="preview-price"></p>
+          </div>
+          <p class="preview-note" id="preview-note">
+            Camera settles at eye level looking at the screen from this seat.
+          </p>
+          <div class="preview-actions">
+            <button type="button" id="btn-refocus" class="cta ghost book-secondary">
+              Refocus view
+            </button>
+            <button type="button" id="btn-confirm" class="cta primary book-btn">
+              Book this seat
+            </button>
+          </div>
         </div>
       </div>
     </aside>
@@ -155,10 +161,11 @@
       {
         "imports": {
           "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+          "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.mjs"
         }
       }
     </script>
-    <script type="module" src="app.js?v=view2"></script>
+    <script type="module" src="app.js?v=vid1"></script>
   </body>
 </html>

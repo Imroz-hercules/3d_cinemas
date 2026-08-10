@@ -236,17 +236,22 @@ body.is-booking .hint {
   bottom: 5.25rem;
   width: min(25rem, calc(100vw - 1.5rem));
   z-index: 4;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1.2rem 1.15rem 1.15rem;
+  padding: 0;
   background:
     linear-gradient(165deg, rgba(232, 165, 75, 0.06) 0%, transparent 28%),
     var(--panel);
   border: 1px solid var(--line);
   backdrop-filter: blur(18px);
-  overflow: auto;
+  overflow: hidden;
   animation: panelIn 0.45s var(--ease-out);
+}
+
+.booking-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.2rem 1.15rem 1.15rem;
+  min-height: min-content;
 }
 
 .booking-panel[hidden] {

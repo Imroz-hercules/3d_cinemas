@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import Lenis from "lenis";
 
 const canvas = document.getElementById("theater-canvas");
 const loaderEl = document.getElementById("loader");
@@ -13,6 +14,7 @@ const btnBookCta = document.getElementById("btn-book-cta");
 const tabTheater = document.getElementById("tab-theater");
 const tabBooking = document.getElementById("tab-booking");
 const bookingPanel = document.getElementById("booking-panel");
+const bookingPanelContent = document.getElementById("booking-panel-content");
 const seatMapEl = document.getElementById("seat-map");
 const previewCard = document.getElementById("preview-card");
 const previewSeat = document.getElementById("preview-seat");
@@ -58,11 +60,35 @@ const camera = new THREE.PerspectiveCamera(
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
-controls.dampingFactor = 0.06;
+controls.dampingFactor = 0.045;
+controls.rotateSpeed = 0.72;
+controls.zoomSpeed = 0.85;
+controls.panSpeed = 0.7;
 controls.maxPolarAngle = Math.PI * 0.49;
 controls.minDistance = 0.25;
 controls.maxDistance = 80;
 controls.target.set(0, 1.2, 0);
+
+// Smooth booking-panel scroll (Lenis). 3D camera uses OrbitControls damping.
+let bookingLenis = null;
+
+function initBookingLenis() {
+  if (bookingLenis || !bookingPanel || !bookingPanelContent) return;
+  bookingLenis = new Lenis({
+    wrapper: bookingPanel,
+    content: bookingPanelContent,
+    duration: 1.1,
+    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+    smoothWheel: true,
+    touchMultiplier: 1.2,
+  });
+}
+
+function destroyBookingLenis() {
+  if (!bookingLenis) return;
+  bookingLenis.destroy();
+  bookingLenis = null;
+}
 
 // Very low ambient so lamp washes + screen dominate
 const hemi = new THREE.HemisphereLight(0x1a2238, 0x080604, 0.12);
@@ -433,50 +459,51 @@ function addPracticalLights(root) {
 }
 
 function makeScreenMovieTexture() {
-  const c = document.createElement("canvas");
-  c.width = 1024;
-  c.height = 512;
-  const ctx = c.getContext("2d");
-  const draw = (t) => {
-    // Bright luminous screen like the Blender reference
-    const g = ctx.createRadialGradient(512, 260, 40, 512, 260, 620);
-    g.addColorStop(0, "#ffffff");
-    g.addColorStop(0.45, "#f7f3ea");
-    g.addColorStop(0.85, "#e8dfd0");
-    g.addColorStop(1, "#d4c8b4");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 1024, 512);
+  const video = document.createElement("video");
+  video.src = "./textures/Hercules.mp4";
+  video.crossOrigin = "anonymous";
+  video.loop = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
 
-    ctx.fillStyle = "rgba(20, 14, 8, 0.22)";
-    ctx.font = "bold 64px Bebas Neue, Impact, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("NOW SHOWING", 512, 210);
-    ctx.font = "600 40px Instrument Sans, sans-serif";
-    ctx.fillText("Night Reel", 512, 275);
-    ctx.fillStyle = "rgba(20, 14, 8, 0.14)";
-    ctx.font = "24px Instrument Sans, sans-serif";
-    ctx.fillText("Your seat preview", 512, 330);
-
-    // Soft scan shimmer
-    ctx.globalAlpha = 0.04;
-    for (let i = 0; i < 6; i++) {
-      const x = ((t * 40 + i * 170) % 1200) - 80;
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(x, 0, 18, 512);
+  const tryPlay = () => {
+    const p = video.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {
+        const resume = () => {
+          video.play().catch(() => {});
+          window.removeEventListener("pointerdown", resume);
+        };
+        window.addEventListener("pointerdown", resume);
+      });
     }
-    ctx.globalAlpha = 1;
   };
-  draw(0);
-  const tex = new THREE.CanvasTexture(c);
+
+  if (video.readyState >= 2) tryPlay();
+  else video.addEventListener("canplay", tryPlay, { once: true });
+  video.load();
+
+  const tex = new THREE.VideoTexture(video);
   tex.colorSpace = THREE.SRGBColorSpace;
-  let last = 0;
-  tex.userData.update = (now) => {
-    if (now - last < 90) return;
-    last = now;
-    draw(now * 0.001);
-    tex.needsUpdate = true;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.userData.video = video;
+  tex.userData.update = () => {
+    if (video.readyState >= video.HAVE_CURRENT_DATA) {
+      tex.needsUpdate = true;
+    }
   };
   return tex;
+}
+
+function ensureScreenVideoPlaying() {
+  const video = scene.userData.screenTex?.userData?.video;
+  if (!video || !video.paused) return;
+  video.play().catch(() => {});
 }
 
 function collectSeats(root) {
@@ -584,9 +611,9 @@ function applyMaterials(root) {
         mat.map = screenTex;
         mat.emissiveMap = screenTex;
         mat.emissive.setHex(0xffffff);
-        mat.emissiveIntensity = 2.8;
+        mat.emissiveIntensity = 1.35;
         mat.color.setHex(0xffffff);
-        mat.roughness = 0.35;
+        mat.roughness = 0.45;
         mat.metalness = 0;
       } else if (name.includes("screen_frame")) {
         mat.color.setRGB(0.02, 0.02, 0.02);
@@ -766,7 +793,7 @@ function cameraFromSeat(seatName, options = {}) {
   }
 
   // Full cinematic path: current → approach (behind seat) → mid → seated screen view
-  animateCameraPath([start, approach, mid, final], 2200, () => {
+  animateCameraPath([start, approach, mid, final], 2600, () => {
     setFlightUi(false);
     viewToast.hidden = false;
     viewToastText.textContent = `Screen view from ${label}`;
@@ -881,6 +908,12 @@ function setMode(next) {
     setBookingSteps("pick");
     previewCard.hidden = true;
     cameraStatus.hidden = true;
+    ensureScreenVideoPlaying();
+    requestAnimationFrame(() => {
+      initBookingLenis();
+      bookingLenis?.resize();
+      bookingLenis?.scrollTo(0, { immediate: true });
+    });
 
     const pick = pickDefaultSeat();
     if (pick) {
@@ -888,6 +921,7 @@ function setMode(next) {
       cameraFromSeat(pick);
     }
   } else {
+    destroyBookingLenis();
     clearSeatHighlight();
     selectedSeatName = null;
     previewCard.hidden = true;
@@ -901,7 +935,7 @@ function setMode(next) {
     camera.updateProjectionMatrix();
     applyHomeZoomLimits();
     controls.enabled = true;
-    animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1200, () => {
+    animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1400, () => {
       applyHomeZoomLimits();
     });
     autoOrbit = true;
@@ -909,7 +943,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "view2";
+const ASSET_VERSION = "vid1";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -928,6 +962,7 @@ loader.load(
     aimScreenLights();
     renderSeatMap();
     modelReady = true;
+    ensureScreenVideoPlaying();
 
     loaderText.textContent = "Ready";
     progressBar.style.width = "100%";
@@ -946,8 +981,14 @@ loader.load(
 );
 
 tabTheater.addEventListener("click", () => setMode("theater"));
-tabBooking.addEventListener("click", () => setMode("booking"));
-btnBookCta.addEventListener("click", () => setMode("booking"));
+tabBooking.addEventListener("click", () => {
+  ensureScreenVideoPlaying();
+  setMode("booking");
+});
+btnBookCta.addEventListener("click", () => {
+  ensureScreenVideoPlaying();
+  setMode("booking");
+});
 
 btnReset.addEventListener("click", () => {
   if (mode === "booking") return;
@@ -964,7 +1005,8 @@ btnAuto.addEventListener("click", () => {
 });
 
 btnEnter.addEventListener("click", () => {
-  animateCameraTo(enterCam.clone(), enterTarget.clone(), 1600);
+  ensureScreenVideoPlaying();
+  animateCameraTo(enterCam.clone(), enterTarget.clone(), 1800);
 });
 
 btnConfirm.addEventListener("click", () => {
@@ -981,6 +1023,7 @@ btnRefocus.addEventListener("click", () => {
 });
 
 controls.addEventListener("start", () => {
+  ensureScreenVideoPlaying();
   if (mode === "theater") {
     autoOrbit = false;
     btnAuto.setAttribute("aria-pressed", "false");
@@ -991,22 +1034,28 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  bookingLenis?.resize();
 });
+
+const _orbitOffset = new THREE.Vector3();
+const _orbitSpherical = new THREE.Spherical();
+const _orbitPos = new THREE.Vector3();
 
 function tick(now) {
   requestAnimationFrame(tick);
+  if (bookingLenis) bookingLenis.raf(now);
   if (cameraTween) cameraTween.update(now);
   if (scene.userData.screenTex?.userData.update) {
     scene.userData.screenTex.userData.update(now);
   }
   if (autoOrbit && mode === "theater" && modelRoot && !cameraTween) {
-    const offset = camera.position.clone().sub(controls.target);
-    const sph = new THREE.Spherical().setFromVector3(offset);
-    sph.theta += 0.0018;
+    _orbitOffset.copy(camera.position).sub(controls.target);
+    _orbitSpherical.setFromVector3(_orbitOffset);
+    _orbitSpherical.theta += 0.0012;
+    _orbitSpherical.radius = Math.min(_orbitSpherical.radius, homeDistance);
     camera.position
       .copy(controls.target)
-      .add(new THREE.Vector3().setFromSpherical(sph));
-    camera.lookAt(controls.target);
+      .add(_orbitPos.setFromSpherical(_orbitSpherical));
   }
   controls.update();
   renderer.render(scene, camera);
