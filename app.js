@@ -115,6 +115,8 @@ let selectedSeatName = null;
 let highlightMat = null;
 let modelReady = false;
 let isFlyingToSeat = false;
+/** Starting orbit distance — zoom-out stops here; zoom-in still works */
+let homeDistance = 28;
 
 const defaultCam = new THREE.Vector3(18, 10, 22);
 const defaultTarget = new THREE.Vector3(0, 1.5, 0);
@@ -268,26 +270,51 @@ function isRoofObject(obj) {
   return mats.some((m) => m && /roof/i.test(m.name || ""));
 }
 
+function applyHomeZoomLimits() {
+  controls.maxDistance = homeDistance;
+  controls.minDistance = Math.max(0.4, homeDistance * 0.06);
+}
+
+/** Prefer building meshes so roads/grass don't pull framing off-center */
+function getTheaterFocusBox(object) {
+  const box = new THREE.Box3();
+  let found = false;
+  const focusNames = /^(Wall_Shell|Wall_Front|Screen_|Stage|Floor_|Seat_)/i;
+
+  object.traverse((child) => {
+    if (!child.isMesh) return;
+    if (!focusNames.test(child.name || "")) return;
+    box.expandByObject(child);
+    found = true;
+  });
+
+  if (!found) box.setFromObject(object);
+  return box;
+}
+
 function fitCameraToObject(object) {
-  const box = new THREE.Box3().setFromObject(object);
+  const box = getTheaterFocusBox(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  const distance = maxDim * 1.15;
+  const distance = maxDim * 1.05;
 
-  defaultTarget.copy(center);
-  defaultTarget.y = center.y + size.y * 0.05;
-  defaultTarget.z = center.z - size.z * 0.05;
-  // Elevated night view that reads the wall washes + glowing screen
+  // Look at the true theater center so the house sits in the middle of the page
+  defaultTarget.set(center.x, center.y + size.y * 0.06, center.z);
+
+  // Starting view: elevated front angle — same hero framing as your screenshot
   defaultCam.set(
-    center.x + distance * 0.42,
-    center.y + distance * 0.48,
-    center.z + distance * 0.55
+    center.x + distance * 0.5,
+    center.y + distance * 0.52,
+    center.z + distance * 0.48
   );
-  enterTarget.set(center.x, center.y + size.y * 0.1, center.z - size.z * 0.05);
-  enterCam.set(center.x, center.y + size.y * 0.42, center.z + size.z * 0.15);
 
-  controls.maxDistance = maxDim * 2.8;
+  enterTarget.set(center.x, center.y + size.y * 0.12, center.z - size.z * 0.02);
+  enterCam.set(center.x, center.y + size.y * 0.4, center.z + size.z * 0.18);
+
+  homeDistance = defaultCam.distanceTo(defaultTarget);
+  applyHomeZoomLimits();
+
   camera.position.copy(defaultCam);
   controls.target.copy(defaultTarget);
   controls.update();
@@ -871,15 +898,17 @@ function setMode(next) {
     screenSpot.intensity = 90;
     camera.fov = 50;
     camera.updateProjectionMatrix();
-    controls.maxDistance = 80;
+    applyHomeZoomLimits();
     controls.enabled = true;
-    animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1200);
+    animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1200, () => {
+      applyHomeZoomLimits();
+    });
     autoOrbit = true;
     btnAuto.setAttribute("aria-pressed", "true");
   }
 }
 
-const ASSET_VERSION = "light1";
+const ASSET_VERSION = "view1";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -921,7 +950,10 @@ btnBookCta.addEventListener("click", () => setMode("booking"));
 
 btnReset.addEventListener("click", () => {
   if (mode === "booking") return;
-  animateCameraTo(defaultCam.clone(), defaultTarget.clone());
+  applyHomeZoomLimits();
+  animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1100, () => {
+    applyHomeZoomLimits();
+  });
 });
 
 btnAuto.addEventListener("click", () => {
