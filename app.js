@@ -297,16 +297,17 @@ function fitCameraToObject(object) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  const distance = maxDim * 1.05;
+  // Slightly farther so the ring road / pavement stays in frame
+  const distance = maxDim * 1.35;
 
   // Look at the true theater center so the house sits in the middle of the page
-  defaultTarget.set(center.x, center.y + size.y * 0.06, center.z);
+  defaultTarget.set(center.x, center.y + size.y * 0.04, center.z);
 
   // Starting view: elevated front angle — same hero framing as your screenshot
   defaultCam.set(
     center.x + distance * 0.5,
-    center.y + distance * 0.52,
-    center.z + distance * 0.48
+    center.y + distance * 0.48,
+    center.z + distance * 0.52
   );
 
   enterTarget.set(center.x, center.y + size.y * 0.12, center.z - size.z * 0.02);
@@ -908,7 +909,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "view1";
+const ASSET_VERSION = "view2";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
