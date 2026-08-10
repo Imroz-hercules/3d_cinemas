@@ -19,7 +19,16 @@ const previewSeat = document.getElementById("preview-seat");
 const previewNote = document.getElementById("preview-note");
 const previewPrice = document.getElementById("preview-price");
 const btnConfirm = document.getElementById("btn-confirm");
+const btnRefocus = document.getElementById("btn-refocus");
 const viewToast = document.getElementById("view-toast");
+const viewToastText = document.getElementById("view-toast-text");
+const cameraStatus = document.getElementById("camera-status");
+const cameraStatusText = document.getElementById("camera-status-text");
+const availFree = document.getElementById("avail-free");
+const availTaken = document.getElementById("avail-taken");
+const stepPick = document.getElementById("step-pick");
+const stepView = document.getElementById("step-view");
+const stepBook = document.getElementById("step-book");
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -90,6 +99,7 @@ let cameraTween = null;
 let selectedSeatName = null;
 let highlightMat = null;
 let modelReady = false;
+let isFlyingToSeat = false;
 
 const defaultCam = new THREE.Vector3(18, 10, 22);
 const defaultTarget = new THREE.Vector3(0, 1.5, 0);
@@ -132,7 +142,41 @@ function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
-function animateCameraTo(pos, target, duration = 1100) {
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function setBookingSteps(phase) {
+  // phase: "pick" | "flying" | "preview"
+  stepPick.classList.toggle("is-active", phase === "pick");
+  stepPick.classList.toggle("is-done", phase !== "pick");
+  stepView.classList.toggle(
+    "is-active",
+    phase === "flying" || phase === "preview"
+  );
+  stepView.classList.toggle("is-done", phase === "preview");
+  stepBook.classList.toggle("is-active", phase === "preview");
+  stepBook.classList.remove("is-done");
+}
+
+function setFlightUi(active, seatLabel = "") {
+  isFlyingToSeat = active;
+  if (active) {
+    cameraStatus.hidden = false;
+    cameraStatusText.textContent = seatLabel
+      ? `Flying to ${seatLabel}…`
+      : "Flying to your seat…";
+    viewToast.hidden = false;
+    viewToastText.textContent = seatLabel
+      ? `Moving camera to ${seatLabel}`
+      : "Flying to your seat…";
+    setBookingSteps("flying");
+  } else {
+    cameraStatus.hidden = true;
+  }
+}
+
+function animateCameraTo(pos, target, duration = 1100, onDone) {
   const fromPos = camera.position.clone();
   const fromTarget = controls.target.clone();
   const start = performance.now();
@@ -146,7 +190,50 @@ function animateCameraTo(pos, target, duration = 1100) {
       camera.position.lerpVectors(fromPos, pos, e);
       controls.target.lerpVectors(fromTarget, target, e);
       controls.update();
-      if (t >= 1) cameraTween = null;
+      if (t >= 1) {
+        cameraTween = null;
+        if (onDone) onDone();
+      }
+    },
+  };
+}
+
+/**
+ * Cinematic fly: rise / approach seat from behind, then settle into seated POV.
+ * Smooth 3-segment lerp through approach → mid → final.
+ */
+function animateCameraPath(waypoints, duration, onDone) {
+  const start = performance.now();
+  autoOrbit = false;
+  btnAuto.setAttribute("aria-pressed", "false");
+  controls.enabled = false;
+
+  cameraTween = {
+    update(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const e = easeInOutCubic(t);
+
+      // 3 equal segments across 4 waypoints
+      const segs = waypoints.length - 1;
+      const scaled = e * segs;
+      const i = Math.min(Math.floor(scaled), segs - 1);
+      const local = easeOutCubic(scaled - i);
+      const a = waypoints[i];
+      const b = waypoints[i + 1];
+
+      camera.position.lerpVectors(a.pos, b.pos, local);
+      controls.target.lerpVectors(a.target, b.target, local);
+      controls.update();
+
+      if (t >= 1) {
+        const last = waypoints[waypoints.length - 1];
+        camera.position.copy(last.pos);
+        controls.target.copy(last.target);
+        controls.update();
+        cameraTween = null;
+        controls.enabled = true;
+        if (onDone) onDone();
+      }
     },
   };
 }
@@ -276,7 +363,6 @@ function collectSeats(root) {
   root.traverse((child) => {
     const parsed = parseSeatName(child.name);
     if (!parsed) return;
-    // Prefer the named node once (group or mesh)
     if (seats.has(child.name)) return;
     seats.set(child.name, {
       obj: child,
@@ -287,7 +373,6 @@ function collectSeats(root) {
     });
   });
 
-  // Sort each row left→right by world X
   const rowMap = new Map();
   for (const [name, seat] of seats) {
     if (!rowMap.has(seat.row)) rowMap.set(seat.row, []);
@@ -407,43 +492,143 @@ function highlightSeat(seatName) {
   });
 }
 
-function cameraFromSeat(seatName, instant = false) {
+/**
+ * Seat POV matching the reference: sit behind the seat back,
+ * eye-level, looking at the theater screen (not a hard cut to screen only).
+ */
+function getSeatCameraPose(seatName) {
   const seat = seats.get(seatName);
-  if (!seat) return;
+  if (!seat) return null;
 
   seat.obj.updateWorldMatrix(true, false);
   const seatPos = new THREE.Vector3();
   seat.obj.getWorldPosition(seatPos);
 
-  // Sit in the seat, eyes toward the screen
-  const eye = seatPos.clone().add(new THREE.Vector3(0, 1.25, 0));
-  const toScreen = screenTarget.clone().sub(eye);
+  // Direction from seat toward screen (horizontal)
+  const toScreen = screenTarget.clone().sub(seatPos);
+  toScreen.y = 0;
   if (toScreen.lengthSq() < 0.001) toScreen.set(0, 0, -1);
   toScreen.normalize();
 
-  // Camera slightly behind eye so we see over the seat back toward screen
-  const camPos = eye.clone().addScaledVector(toScreen, -0.55);
-  camPos.y = Math.max(camPos.y, seatPos.y + 1.15);
+  // Final camera: slightly behind seat, sitting eye height — see seat backs + framed screen
+  const eyeHeight = 1.18;
+  const behind = 0.95;
+  const camPos = seatPos
+    .clone()
+    .addScaledVector(toScreen, -behind)
+    .add(new THREE.Vector3(0, eyeHeight, 0));
 
+  // Look at screen center, nudged down a bit so wall/seats frame the shot
   const lookAt = screenTarget.clone();
+  lookAt.y -= 0.35;
+
+  // Approach waypoint: higher and further back, looking at the seat first
+  const approachPos = seatPos
+    .clone()
+    .addScaledVector(toScreen, -2.8)
+    .add(new THREE.Vector3(0, 2.6, 0));
+  const approachLook = seatPos.clone().add(new THREE.Vector3(0, 0.9, 0));
+
+  // Mid waypoint: descend toward seat while swinging look toward screen
+  const midPos = seatPos
+    .clone()
+    .addScaledVector(toScreen, -1.6)
+    .add(new THREE.Vector3(0, 1.85, 0));
+  const midLook = seatPos
+    .clone()
+    .lerp(screenTarget, 0.45)
+    .add(new THREE.Vector3(0, 0.4, 0));
+
+  return {
+    seat,
+    seatPos,
+    final: { pos: camPos, target: lookAt },
+    approach: { pos: approachPos, target: approachLook },
+    mid: { pos: midPos, target: midLook },
+  };
+}
+
+function updatePreviewCard(seat, flying) {
+  previewCard.hidden = false;
+  previewSeat.textContent = `Row ${seat.row + 1} · Seat ${seat.col + 1}`;
+  previewPrice.textContent = formatInr(seat.price);
+  if (flying) {
+    previewNote.textContent =
+      "Camera is moving to this seat — watch the 3D view settle on the screen.";
+  } else {
+    previewNote.textContent =
+      "This is your eye-level view of the screen. Drag to look around.";
+  }
+}
+
+function cameraFromSeat(seatName, options = {}) {
+  const { instant = false, refocus = false } = options;
+  const pose = getSeatCameraPose(seatName);
+  if (!pose) return;
+
+  const { seat, final, approach, mid } = pose;
+  const label = `Row ${seat.row + 1} · Seat ${seat.col + 1}`;
+  const sameSeat = selectedSeatName === seatName;
 
   highlightSeat(seatName);
-  if (instant) snapCameraTo(camPos, lookAt);
-  else animateCameraTo(camPos, lookAt, 1000);
-
-  controls.minDistance = 0.15;
-  controls.maxDistance = 8;
-
-  previewCard.hidden = false;
-  viewToast.hidden = false;
-  previewSeat.textContent = `Row ${seat.row + 1} · Seat ${seat.col + 1}`;
-  previewNote.textContent =
-    "This is the movie screen from your seat. Drag to look left/right.";
-  previewPrice.textContent = formatInr(seat.price);
-
   seatMapEl.querySelectorAll(".seat-btn").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.seat === seatName);
   });
+
+  controls.minDistance = 0.12;
+  controls.maxDistance = 10;
+  camera.fov = 58;
+  camera.updateProjectionMatrix();
+
+  updatePreviewCard(seat, !instant);
+
+  if (instant) {
+    snapCameraTo(final.pos, final.target);
+    setFlightUi(false);
+    viewToast.hidden = false;
+    viewToastText.textContent = `Screen view from ${label}`;
+    setBookingSteps("preview");
+    return;
+  }
+
+  setFlightUi(true, label);
+
+  const start = {
+    pos: camera.position.clone(),
+    target: controls.target.clone(),
+  };
+
+  // Same seat re-tap / refocus: shorter settle from current → final
+  if (refocus || sameSeat) {
+    animateCameraTo(final.pos, final.target, 900, () => {
+      setFlightUi(false);
+      viewToast.hidden = false;
+      viewToastText.textContent = `Screen view from ${label}`;
+      updatePreviewCard(seat, false);
+      setBookingSteps("preview");
+    });
+    return;
+  }
+
+  // Full cinematic path: current → approach (behind seat) → mid → seated screen view
+  animateCameraPath([start, approach, mid, final], 2200, () => {
+    setFlightUi(false);
+    viewToast.hidden = false;
+    viewToastText.textContent = `Screen view from ${label}`;
+    updatePreviewCard(seat, false);
+    setBookingSteps("preview");
+  });
+}
+
+function updateAvailability() {
+  let free = 0;
+  let taken = 0;
+  for (const name of seats.keys()) {
+    if (TAKEN.has(name)) taken += 1;
+    else free += 1;
+  }
+  availFree.textContent = `${free} free`;
+  availTaken.textContent = `${taken} taken`;
 }
 
 function renderSeatMap() {
@@ -470,7 +655,6 @@ function renderSeatMap() {
 
     const mid = Math.floor(names.length / 2);
     names.forEach((name, i) => {
-      // Center aisle gap
       if (i === mid) {
         const gap = document.createElement("div");
         gap.className = "aisle";
@@ -482,11 +666,20 @@ function renderSeatMap() {
       btn.className = "seat-btn";
       btn.dataset.seat = name;
       const seat = seats.get(name);
-      btn.title = `Row ${row + 1} Seat ${(seat?.col ?? i) + 1} · ${formatInr(seat?.price ?? 0)}`;
+      const seatNo = (seat?.col ?? i) + 1;
+      btn.title = `Row ${row + 1} Seat ${seatNo} · ${formatInr(seat?.price ?? 0)}`;
+      btn.setAttribute(
+        "aria-label",
+        `Row ${row + 1} Seat ${seatNo}${TAKEN.has(name) ? ", taken" : ""}`
+      );
       if (TAKEN.has(name)) {
         btn.classList.add("is-taken");
+        btn.disabled = true;
       } else {
-        btn.addEventListener("click", () => cameraFromSeat(name));
+        btn.addEventListener("click", () => {
+          if (isFlyingToSeat && selectedSeatName === name) return;
+          cameraFromSeat(name);
+        });
       }
       seatsEl.appendChild(btn);
     });
@@ -495,10 +688,11 @@ function renderSeatMap() {
     rowEl.appendChild(seatsEl);
     seatMapEl.appendChild(rowEl);
   }
+
+  updateAvailability();
 }
 
 function pickDefaultSeat() {
-  // Prefer middle row, center seat
   const rows = [...seatsByRow.keys()].sort((a, b) => a - b);
   if (!rows.length) return null;
   const midRow = rows[Math.floor(rows.length / 2)];
@@ -528,31 +722,35 @@ function setMode(next) {
     btnAuto.setAttribute("aria-pressed", "false");
     interiorFill.intensity = 34;
     stageGlow.intensity = 55;
-    camera.fov = 55;
-    camera.updateProjectionMatrix();
+    setBookingSteps("pick");
+    previewCard.hidden = true;
+    cameraStatus.hidden = true;
 
     const pick = pickDefaultSeat();
     if (pick) {
-      // Instant jump inside so user never stays on exterior
-      cameraFromSeat(pick, true);
+      // Smooth fly into the house to the default seat (no hard jump)
+      cameraFromSeat(pick);
     }
   } else {
     clearSeatHighlight();
     selectedSeatName = null;
     previewCard.hidden = true;
     viewToast.hidden = true;
+    cameraStatus.hidden = true;
+    isFlyingToSeat = false;
     interiorFill.intensity = 26;
     stageGlow.intensity = 40;
     camera.fov = 50;
     camera.updateProjectionMatrix();
     controls.maxDistance = 80;
+    controls.enabled = true;
     animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1200);
     autoOrbit = true;
     btnAuto.setAttribute("aria-pressed", "true");
   }
 }
 
-const ASSET_VERSION = "book2";
+const ASSET_VERSION = "book3";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -607,11 +805,16 @@ btnEnter.addEventListener("click", () => {
 });
 
 btnConfirm.addEventListener("click", () => {
-  if (!selectedSeatName) return;
+  if (!selectedSeatName || isFlyingToSeat) return;
   const seat = seats.get(selectedSeatName);
   alert(
     `Seat reserved!\n\nRow ${seat.row + 1} · Seat ${seat.col + 1}\n${formatInr(seat.price)}\n\n(Demo booking)`
   );
+});
+
+btnRefocus.addEventListener("click", () => {
+  if (!selectedSeatName || isFlyingToSeat) return;
+  cameraFromSeat(selectedSeatName, { refocus: true });
 });
 
 controls.addEventListener("start", () => {

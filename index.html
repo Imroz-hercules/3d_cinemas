@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=book2" />
+    <link rel="stylesheet" href="styles.css?v=book3" />
   </head>
   <body>
     <div id="canvas-wrap" aria-hidden="true">
@@ -53,9 +53,23 @@
         <p class="panel-kicker">Ticket booking</p>
         <h2 class="panel-title">Pick a seat</h2>
         <p class="panel-copy">
-          Tap any available seat. The 3D view jumps inside and shows the movie
-          screen from that place.
+          Tap a free seat — the camera flies to that row and shows the screen
+          from your view.
         </p>
+      </div>
+
+      <div class="booking-steps" aria-hidden="true">
+        <span class="step is-active" id="step-pick">1 · Choose</span>
+        <span class="step-line"></span>
+        <span class="step" id="step-view">2 · Preview</span>
+        <span class="step-line"></span>
+        <span class="step" id="step-book">3 · Book</span>
+      </div>
+
+      <div class="availability" id="availability">
+        <span id="avail-free">— free</span>
+        <span class="avail-sep">·</span>
+        <span id="avail-taken">— taken</span>
       </div>
 
       <div class="legend">
@@ -65,25 +79,43 @@
       </div>
 
       <div class="theater-map">
-        <div class="screen-banner">SCREEN</div>
+        <div class="screen-banner">
+          <span class="screen-arc"></span>
+          <span class="screen-label">SCREEN</span>
+        </div>
         <div id="seat-map" class="seat-map" role="list"></div>
       </div>
 
+      <div class="camera-status" id="camera-status" hidden>
+        <span class="status-pulse"></span>
+        <span id="camera-status-text">Moving to your seat…</span>
+      </div>
+
       <div class="preview-card" id="preview-card" hidden>
-        <p class="preview-label">Your seat view</p>
-        <p class="preview-seat" id="preview-seat">—</p>
+        <div class="preview-top">
+          <div>
+            <p class="preview-label">Your seat view</p>
+            <p class="preview-seat" id="preview-seat">—</p>
+          </div>
+          <p class="preview-price" id="preview-price"></p>
+        </div>
         <p class="preview-note" id="preview-note">
-          You are looking at the theater screen from this seat.
+          Camera settles at eye level looking at the screen from this seat.
         </p>
-        <p class="preview-price" id="preview-price"></p>
-        <button type="button" id="btn-confirm" class="cta primary book-btn">
-          Book this seat
-        </button>
+        <div class="preview-actions">
+          <button type="button" id="btn-refocus" class="cta ghost book-secondary">
+            Refocus view
+          </button>
+          <button type="button" id="btn-confirm" class="cta primary book-btn">
+            Book this seat
+          </button>
+        </div>
       </div>
     </aside>
 
     <div class="view-toast" id="view-toast" hidden>
-      Inside view — this is the screen from your seat
+      <span class="toast-dot"></span>
+      <span id="view-toast-text">Flying to your seat…</span>
     </div>
 
     <nav class="mode-tabs" aria-label="View mode">
@@ -127,6 +159,6 @@
         }
       }
     </script>
-    <script type="module" src="app.js?v=book2"></script>
+    <script type="module" src="app.js?v=book3"></script>
   </body>
 </html>
