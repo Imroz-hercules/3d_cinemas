@@ -493,7 +493,7 @@ function makeScreenMovieTexture() {
   tex.magFilter = THREE.LinearFilter;
   tex.format = THREE.RGBAFormat;
   tex.generateMipmaps = false;
-  tex.flipY = false;
+  tex.flipY = true;
   tex.userData.video = video;
   tex.userData.hls = null;
 
@@ -681,9 +681,9 @@ function ensurePlanarUVs(mesh) {
       uAxis === "x" ? pos.getX(i) : uAxis === "y" ? pos.getY(i) : pos.getZ(i);
     const v =
       vAxis === "x" ? pos.getX(i) : vAxis === "y" ? pos.getY(i) : pos.getZ(i);
-    // Flip V so the trailer reads right-side up from the seats
-    uvs[i * 2] = (u - uMin) / uSize;
-    uvs[i * 2 + 1] = 1 - (v - vMin) / vSize;
+    // 180° UV rotate: fixes upside-down + mirrored mapping from the seats
+    uvs[i * 2] = 1 - (u - uMin) / uSize;
+    uvs[i * 2 + 1] = (v - vMin) / vSize;
   }
 
   geom.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
@@ -1132,7 +1132,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid5";
+const ASSET_VERSION = "vid6";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
