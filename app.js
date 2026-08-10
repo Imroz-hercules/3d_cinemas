@@ -39,14 +39,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 0.92;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-const NIGHT = 0x0a1020;
+// Dark night plate — matches the Blender lighting reference
+const NIGHT = 0x05070c;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(NIGHT);
-scene.fog = new THREE.FogExp2(NIGHT, 0.008);
+scene.fog = new THREE.FogExp2(NIGHT, 0.012);
 
 const camera = new THREE.PerspectiveCamera(
   50,
@@ -63,10 +64,12 @@ controls.minDistance = 0.25;
 controls.maxDistance = 80;
 controls.target.set(0, 1.2, 0);
 
-scene.add(new THREE.HemisphereLight(0x4a5d82, 0x1a120c, 0.55));
+// Very low ambient so lamp washes + screen dominate
+const hemi = new THREE.HemisphereLight(0x1a2238, 0x080604, 0.12);
+scene.add(hemi);
 
-const moon = new THREE.DirectionalLight(0xb8c8ef, 0.65);
-moon.position.set(-16, 26, -8);
+const moon = new THREE.DirectionalLight(0x6a7aaa, 0.18);
+moon.position.set(-18, 28, -6);
 moon.castShadow = true;
 moon.shadow.mapSize.set(2048, 2048);
 moon.shadow.camera.left = -40;
@@ -76,20 +79,32 @@ moon.shadow.camera.bottom = -40;
 moon.shadow.bias = -0.00025;
 scene.add(moon);
 
-const frontSpot = new THREE.SpotLight(0xffc078, 48, 60, Math.PI / 4, 0.45, 1.2);
+// Soft entrance key (kept low — wall lamps do most exterior work)
+const frontSpot = new THREE.SpotLight(0xffc078, 12, 55, Math.PI / 5, 0.55, 1.4);
 scene.add(frontSpot);
 scene.add(frontSpot.target);
 
-const topFocus = new THREE.SpotLight(0xffe0b0, 36, 55, Math.PI / 3.2, 0.5, 1.1);
+const topFocus = new THREE.SpotLight(0xc8d4ef, 4, 50, Math.PI / 3.5, 0.7, 1.3);
 scene.add(topFocus);
 scene.add(topFocus.target);
 
-const entranceGlow = new THREE.PointLight(0xff9a3c, 28, 40, 1.6);
+const entranceGlow = new THREE.PointLight(0xff9a3c, 8, 28, 2);
 scene.add(entranceGlow);
-const stageGlow = new THREE.PointLight(0xffb45a, 40, 45, 1.5);
-scene.add(stageGlow);
-const interiorFill = new THREE.PointLight(0xffd8a8, 26, 40, 1.4);
+
+// Screen spill into the house (primary interior light)
+const screenGlow = new THREE.PointLight(0xfff4e8, 55, 32, 1.35);
+scene.add(screenGlow);
+
+const screenSpot = new THREE.SpotLight(0xffffff, 90, 42, Math.PI / 2.6, 0.55, 1.15);
+scene.add(screenSpot);
+scene.add(screenSpot.target);
+
+// Mild warm fill over seats (boosted slightly in booking mode)
+const interiorFill = new THREE.PointLight(0xffd2a8, 6, 28, 1.8);
 scene.add(interiorFill);
+
+/** @type {THREE.Light[]} */
+const practicalLights = [];
 
 let modelRoot = null;
 let screenTarget = new THREE.Vector3(0, 2.8, -10);
@@ -261,11 +276,13 @@ function fitCameraToObject(object) {
   const distance = maxDim * 1.15;
 
   defaultTarget.copy(center);
-  defaultTarget.y = center.y + size.y * 0.08;
+  defaultTarget.y = center.y + size.y * 0.05;
+  defaultTarget.z = center.z - size.z * 0.05;
+  // Elevated night view that reads the wall washes + glowing screen
   defaultCam.set(
-    center.x + distance * 0.55,
-    center.y + distance * 0.38,
-    center.z + distance * 0.7
+    center.x + distance * 0.42,
+    center.y + distance * 0.48,
+    center.z + distance * 0.55
   );
   enterTarget.set(center.x, center.y + size.y * 0.1, center.z - size.z * 0.05);
   enterCam.set(center.x, center.y + size.y * 0.42, center.z + size.z * 0.15);
@@ -278,38 +295,113 @@ function fitCameraToObject(object) {
 }
 
 function aimFocusLights(center, size) {
-  frontSpot.position.set(center.x, center.y + size.y * 0.9, center.z + size.z * 0.85);
-  frontSpot.target.position.set(center.x, center.y + size.y * 0.2, center.z);
+  frontSpot.position.set(center.x, center.y + size.y * 0.55, center.z + size.z * 0.72);
+  frontSpot.target.position.set(center.x, center.y + size.y * 0.15, center.z + size.z * 0.15);
   frontSpot.target.updateMatrixWorld();
 
-  topFocus.position.set(center.x, center.y + size.y * 1.6, center.z + size.z * 0.1);
-  topFocus.target.position.set(center.x, center.y, center.z);
+  topFocus.position.set(center.x, center.y + size.y * 1.4, center.z + size.z * 0.05);
+  topFocus.target.position.set(center.x, center.y + size.y * 0.05, center.z - size.z * 0.1);
   topFocus.target.updateMatrixWorld();
 
-  entranceGlow.position.set(center.x, center.y + size.y * 0.35, center.z + size.z * 0.45);
-  stageGlow.position.set(center.x, center.y + size.y * 0.45, center.z - size.z * 0.35);
-  interiorFill.position.set(center.x, center.y + size.y * 0.55, center.z);
+  entranceGlow.position.set(center.x, center.y + size.y * 0.28, center.z + size.z * 0.42);
+  interiorFill.position.set(center.x, center.y + size.y * 0.35, center.z - size.z * 0.05);
 }
 
-function addLampPointLights(root) {
+function aimScreenLights() {
+  screenGlow.position.copy(screenTarget);
+  screenGlow.position.z -= 0.35;
+  screenGlow.position.y += 0.15;
+
+  // Cast bright screen light back over the seating bowl
+  screenSpot.position.copy(screenTarget);
+  screenSpot.position.z -= 0.2;
+  screenSpot.target.position.set(0, 1.4, -12);
+  screenSpot.target.updateMatrixWorld();
+}
+
+/**
+ * Cinematic practicals matching the Blender lighting view:
+ * - Warm SpotLights from each Lamp_Head washing up the brick shell
+ * - Small cool PointLights on aisle markers
+ * - Soft bollard pools along the ring
+ */
+function addPracticalLights(root) {
   root.updateMatrixWorld(true);
+
+  // Clear previous practicals (hot reload / re-init safety)
+  for (const light of practicalLights) {
+    scene.remove(light);
+    if (light.target) scene.remove(light.target);
+    light.dispose?.();
+  }
+  practicalLights.length = 0;
+
+  const theaterCore = new THREE.Vector3(0, 2.2, -10);
+
   root.traverse((child) => {
     if (!child.isMesh) return;
     const n = (child.name || "").toLowerCase();
-    if (!n.includes("lamp_head") && !n.includes("bollard")) return;
     const world = new THREE.Vector3();
     child.getWorldPosition(world);
-    const isLamp = n.includes("lamp_head");
-    const light = new THREE.PointLight(
-      isLamp ? 0xffe0b0 : 0xffc078,
-      isLamp ? 6 : 2.5,
-      isLamp ? 14 : 8,
-      1.8
-    );
-    light.position.copy(world);
-    light.position.y += 0.2;
-    scene.add(light);
+
+    if (n.startsWith("lamp_head")) {
+      // Local warm bulb at the fixture
+      const bulb = new THREE.PointLight(0xffd7a0, 3.2, 7, 2.2);
+      bulb.position.copy(world);
+      scene.add(bulb);
+      practicalLights.push(bulb);
+
+      // Wall-wash cone aimed at the brick shell (up + slightly inward)
+      const toCore = theaterCore.clone().sub(world);
+      toCore.y = 0;
+      if (toCore.lengthSq() < 0.001) toCore.set(0, 0, 1);
+      toCore.normalize();
+
+      const washTarget = world
+        .clone()
+        .addScaledVector(toCore, 2.8)
+        .add(new THREE.Vector3(0, 3.4, 0));
+
+      const wash = new THREE.SpotLight(
+        0xffb15a,
+        55,
+        18,
+        Math.PI / 5.5,
+        0.42,
+        1.35
+      );
+      wash.position.copy(world);
+      wash.position.y += 0.05;
+      wash.target.position.copy(washTarget);
+      scene.add(wash);
+      scene.add(wash.target);
+      wash.target.updateMatrixWorld();
+      practicalLights.push(wash);
+      return;
+    }
+
+    if (n.startsWith("aislelight")) {
+      const aisle = new THREE.PointLight(0xf2f6ff, 2.4, 3.2, 2.4);
+      aisle.position.copy(world);
+      aisle.position.y += 0.08;
+      scene.add(aisle);
+      practicalLights.push(aisle);
+      return;
+    }
+
+    // Every other bollard — soft ground pools without flooding the scene
+    if (n.startsWith("bollard")) {
+      const idx = Number((child.name.match(/\.(\d+)$/) || [])[1] || 0);
+      if (idx % 2 === 1) return;
+      const pool = new THREE.PointLight(0xffc078, 1.1, 4.5, 2.5);
+      pool.position.copy(world);
+      pool.position.y += 0.55;
+      scene.add(pool);
+      practicalLights.push(pool);
+    }
   });
+
+  console.log(`[3D Theater] Practical lights: ${practicalLights.length}`);
 }
 
 function makeScreenMovieTexture() {
@@ -318,27 +410,31 @@ function makeScreenMovieTexture() {
   c.height = 512;
   const ctx = c.getContext("2d");
   const draw = (t) => {
-    const g = ctx.createLinearGradient(0, 0, 1024, 512);
-    g.addColorStop(0, "#1a0a2e");
-    g.addColorStop(0.5, "#4a1d6e");
-    g.addColorStop(1, "#0d2137");
+    // Bright luminous screen like the Blender reference
+    const g = ctx.createRadialGradient(512, 260, 40, 512, 260, 620);
+    g.addColorStop(0, "#ffffff");
+    g.addColorStop(0.45, "#f7f3ea");
+    g.addColorStop(0.85, "#e8dfd0");
+    g.addColorStop(1, "#d4c8b4");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 1024, 512);
-    ctx.fillStyle = "rgba(232,165,75,0.95)";
-    ctx.font = "bold 70px Bebas Neue, Impact, sans-serif";
+
+    ctx.fillStyle = "rgba(20, 14, 8, 0.22)";
+    ctx.font = "bold 64px Bebas Neue, Impact, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("NOW SHOWING", 512, 190);
-    ctx.fillStyle = "#f2e8d5";
-    ctx.font = "600 46px Instrument Sans, sans-serif";
-    ctx.fillText("Night Reel", 512, 270);
-    ctx.fillStyle = "rgba(242,232,213,0.55)";
-    ctx.font = "26px Instrument Sans, sans-serif";
+    ctx.fillText("NOW SHOWING", 512, 210);
+    ctx.font = "600 40px Instrument Sans, sans-serif";
+    ctx.fillText("Night Reel", 512, 275);
+    ctx.fillStyle = "rgba(20, 14, 8, 0.14)";
+    ctx.font = "24px Instrument Sans, sans-serif";
     ctx.fillText("Your seat preview", 512, 330);
-    ctx.globalAlpha = 0.1;
-    for (let i = 0; i < 8; i++) {
-      const x = ((t * 50 + i * 130) % 1200) - 80;
+
+    // Soft scan shimmer
+    ctx.globalAlpha = 0.04;
+    for (let i = 0; i < 6; i++) {
+      const x = ((t * 40 + i * 170) % 1200) - 80;
       ctx.fillStyle = "#fff";
-      ctx.fillRect(x, 0, 16, 512);
+      ctx.fillRect(x, 0, 18, 512);
     }
     ctx.globalAlpha = 1;
   };
@@ -415,27 +511,58 @@ function applyMaterials(root) {
       const name = (mat.name || "").toLowerCase();
 
       if (name.includes("grass") || name.includes("hedge")) {
-        mat.color.setRGB(0.05, 0.14, 0.06);
+        mat.color.setRGB(0.03, 0.08, 0.04);
+        mat.roughness = 1;
       } else if (name.includes("pavement") || name.includes("boundary")) {
-        mat.color.multiplyScalar(0.7);
+        mat.color.multiplyScalar(0.55);
+        mat.roughness = 0.95;
       } else if (name.includes("road") && !name.includes("line")) {
-        mat.color.setRGB(0.04, 0.04, 0.05);
+        mat.color.setRGB(0.03, 0.03, 0.035);
+      } else if (name.includes("floor")) {
+        mat.color.setRGB(0.06, 0.06, 0.07);
+        mat.roughness = 0.92;
+      } else if (name.includes("brick") || name.includes("wall")) {
+        // Keep brick readable under warm washes
+        mat.roughness = Math.min(mat.roughness ?? 0.9, 0.88);
+        if (name.includes("brick_out") || name.includes("brick_front")) {
+          mat.color.multiplyScalar(0.92);
+        }
+      } else if (name.includes("seat_fabric")) {
+        mat.color.setRGB(0.45, 0.08, 0.08);
+        mat.roughness = 0.85;
+      } else if (name.includes("curtain")) {
+        mat.color.setRGB(0.25, 0.04, 0.05);
+        mat.roughness = 0.9;
       }
 
-      if (
-        name.includes("lamp") ||
-        name.includes("bollard") ||
-        name.includes("aisle") ||
-        name.includes("sign")
-      ) {
-        mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 1, 4.5);
+      if (name.includes("lamp_glow")) {
+        mat.emissive = mat.emissive || new THREE.Color();
+        mat.emissive.setHex(0xffc078);
+        mat.emissiveIntensity = 6.5;
+        mat.color.setHex(0xffe0b0);
+      } else if (name.includes("bollard")) {
+        mat.emissive = mat.emissive || new THREE.Color();
+        mat.emissive.setHex(0xffb45a);
+        mat.emissiveIntensity = 3.2;
+      } else if (name.includes("aisle")) {
+        mat.emissive = mat.emissive || new THREE.Color();
+        mat.emissive.setHex(0xf0f4ff);
+        mat.emissiveIntensity = 8;
+        mat.color.setHex(0xffffff);
+      } else if (name.includes("sign")) {
+        mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 1, 3.5);
         if (mat.emissive && mat.emissive.getHex() === 0) mat.emissive.copy(mat.color);
-      } else if (name.includes("screen")) {
+      } else if (name.includes("screen") && !name.includes("frame")) {
         mat.map = screenTex;
         mat.emissiveMap = screenTex;
         mat.emissive.setHex(0xffffff);
-        mat.emissiveIntensity = 1.6;
+        mat.emissiveIntensity = 2.8;
         mat.color.setHex(0xffffff);
+        mat.roughness = 0.35;
+        mat.metalness = 0;
+      } else if (name.includes("screen_frame")) {
+        mat.color.setRGB(0.02, 0.02, 0.02);
+        mat.roughness = 0.7;
       }
       mat.envMapIntensity = 0;
       mat.needsUpdate = true;
@@ -720,8 +847,9 @@ function setMode(next) {
   if (booking) {
     autoOrbit = false;
     btnAuto.setAttribute("aria-pressed", "false");
-    interiorFill.intensity = 34;
-    stageGlow.intensity = 55;
+    interiorFill.intensity = 10;
+    screenGlow.intensity = 70;
+    screenSpot.intensity = 110;
     setBookingSteps("pick");
     previewCard.hidden = true;
     cameraStatus.hidden = true;
@@ -738,8 +866,9 @@ function setMode(next) {
     viewToast.hidden = true;
     cameraStatus.hidden = true;
     isFlyingToSeat = false;
-    interiorFill.intensity = 26;
-    stageGlow.intensity = 40;
+    interiorFill.intensity = 6;
+    screenGlow.intensity = 55;
+    screenSpot.intensity = 90;
     camera.fov = 50;
     camera.updateProjectionMatrix();
     controls.maxDistance = 80;
@@ -750,7 +879,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "book3";
+const ASSET_VERSION = "light1";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -762,10 +891,11 @@ loader.load(
 
     collectSeats(modelRoot);
     updateScreenTarget(modelRoot);
-    addLampPointLights(modelRoot);
+    addPracticalLights(modelRoot);
 
     const fitted = fitCameraToObject(modelRoot);
     aimFocusLights(fitted.center, fitted.size);
+    aimScreenLights();
     renderSeatMap();
     modelReady = true;
 
