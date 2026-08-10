@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Theater</title>
+    <meta
+      name="description"
+      content="Explore 3D Theater and preview your seat view before booking tickets."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=book2" />
+  </head>
+  <body>
+    <div id="canvas-wrap" aria-hidden="true">
+      <canvas id="theater-canvas"></canvas>
+      <div class="vignette"></div>
+    </div>
+
+    <header class="site-header">
+      <p class="brand">3D Theater</p>
+      <nav class="nav" id="explore-nav">
+        <button type="button" id="btn-reset" class="nav-btn">Reset view</button>
+        <button type="button" id="btn-auto" class="nav-btn" aria-pressed="true">
+          Auto orbit
+        </button>
+      </nav>
+    </header>
+
+    <main class="hero" id="hero">
+      <h1 class="headline">Take a seat in the dark.</h1>
+      <p class="lede">
+        Explore the house, then book a ticket and preview the movie from your
+        exact seat.
+      </p>
+      <div class="cta-row">
+        <button type="button" id="btn-enter" class="cta primary">
+          Enter the house
+        </button>
+        <button type="button" id="btn-book-cta" class="cta ghost">
+          Book tickets
+        </button>
+      </div>
+    </main>
+
+    <aside id="booking-panel" class="booking-panel" hidden>
+      <div class="panel-head">
+        <p class="panel-kicker">Ticket booking</p>
+        <h2 class="panel-title">Pick a seat</h2>
+        <p class="panel-copy">
+          Tap any available seat. The 3D view jumps inside and shows the movie
+          screen from that place.
+        </p>
+      </div>
+
+      <div class="legend">
+        <span><i class="dot free"></i> Free</span>
+        <span><i class="dot selected"></i> Selected</span>
+        <span><i class="dot taken"></i> Taken</span>
+      </div>
+
+      <div class="theater-map">
+        <div class="screen-banner">SCREEN</div>
+        <div id="seat-map" class="seat-map" role="list"></div>
+      </div>
+
+      <div class="preview-card" id="preview-card" hidden>
+        <p class="preview-label">Your seat view</p>
+        <p class="preview-seat" id="preview-seat">—</p>
+        <p class="preview-note" id="preview-note">
+          You are looking at the theater screen from this seat.
+        </p>
+        <p class="preview-price" id="preview-price"></p>
+        <button type="button" id="btn-confirm" class="cta primary book-btn">
+          Book this seat
+        </button>
+      </div>
+    </aside>
+
+    <div class="view-toast" id="view-toast" hidden>
+      Inside view — this is the screen from your seat
+    </div>
+
+    <nav class="mode-tabs" aria-label="View mode">
+      <button
+        type="button"
+        class="mode-tab is-active"
+        id="tab-theater"
+        data-mode="theater"
+        aria-pressed="true"
+      >
+        Theater view
+      </button>
+      <button
+        type="button"
+        class="mode-tab"
+        id="tab-booking"
+        data-mode="booking"
+        aria-pressed="false"
+      >
+        Ticket booking
+      </button>
+    </nav>
+
+    <div id="loader" class="loader" role="status" aria-live="polite">
+      <div class="loader-inner">
+        <p class="loader-brand">3D Theater</p>
+        <div class="progress-track">
+          <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <p id="loader-text" class="loader-text">Loading the house…</p>
+      </div>
+    </div>
+
+    <p class="hint" id="hint">Drag · Scroll · Right-drag to pan</p>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="app.js?v=book2"></script>
+  </body>
+</html>
