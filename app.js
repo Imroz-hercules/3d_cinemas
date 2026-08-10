@@ -376,13 +376,10 @@ function aimFocusLights(center, size) {
 }
 
 function aimScreenLights() {
-  screenGlow.position.copy(screenTarget);
-  screenGlow.position.z -= 0.35;
-  screenGlow.position.y += 0.15;
-
-  // Cast bright screen light back over the seating bowl
-  screenSpot.position.copy(screenTarget);
-  screenSpot.position.z -= 0.2;
+  // Keep spill lights in front of the screen (toward seats), not on the surface
+  // — a light sitting on the mesh looks like a white hot-spot when video is black/loading
+  screenGlow.position.set(screenTarget.x, screenTarget.y, screenTarget.z - 1.8);
+  screenSpot.position.set(screenTarget.x, screenTarget.y, screenTarget.z - 0.9);
   screenSpot.target.position.set(0, 1.4, -12);
   screenSpot.target.updateMatrixWorld();
 }
@@ -474,113 +471,95 @@ function addPracticalLights(root) {
 
 function makeScreenMovieTexture() {
   const video = document.createElement("video");
-  video.crossOrigin = "anonymous";
+  // Same-origin local MP4: do not set crossOrigin (breaks WebGL video textures)
   video.loop = true;
   video.muted = true;
+  video.defaultMuted = true;
+  video.autoplay = true;
   video.playsInline = true;
-  // metadata first — full buffer download is bad for large future trailers
-  video.preload = SCREEN_MEDIA.type === "hls" ? "metadata" : "auto";
+  video.preload = "auto";
   video.setAttribute("playsinline", "");
   video.setAttribute("webkit-playsinline", "");
+  video.setAttribute("muted", "");
   video.disablePictureInPicture = true;
+  // Some browsers only decode reliably when the element is in the DOM
+  video.style.cssText =
+    "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px;";
+  document.body.appendChild(video);
 
   const tex = new THREE.VideoTexture(video);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  tex.format = THREE.RGBAFormat;
   tex.generateMipmaps = false;
+  tex.flipY = true;
   tex.userData.video = video;
   tex.userData.hls = null;
-  tex.userData.framePump = null;
 
-  // Disable Three's default every-rAF needsUpdate — we drive uploads only on new frames
-  tex.update = function updateVideoTexture() {};
-
-  let lastFrameAt = 0;
-  const markFrame = () => {
-    if (video.readyState < video.HAVE_CURRENT_DATA) return;
-    // Skip duplicate marks within ~half a frame at 60fps displays
+  // Use Three's VideoTexture.update, lightly throttled for high-refresh displays
+  const baseUpdate = tex.update.bind(tex);
+  let lastUpload = 0;
+  tex.update = function throttledVideoUpdate() {
+    if (video.readyState < video.HAVE_CURRENT_DATA || video.paused) return;
     const now = performance.now();
-    if (now - lastFrameAt < 8) return;
-    lastFrameAt = now;
+    if (now - lastUpload < 16) return;
+    lastUpload = now;
+    baseUpdate();
+  };
+
+  video.addEventListener("error", () => {
+    const err = video.error;
+    console.error(
+      "[3D Theater] Screen video failed:",
+      err?.message || err?.code || err,
+      SCREEN_MEDIA.src
+    );
+  });
+
+  video.addEventListener("loadeddata", () => {
     tex.needsUpdate = true;
-  };
-
-  const startFramePump = () => {
-    if (tex.userData.framePump) return;
-
-    if (typeof video.requestVideoFrameCallback === "function") {
-      const onVideoFrame = () => {
-        markFrame();
-        if (!video.paused && !video.ended) {
-          tex.userData.framePump = video.requestVideoFrameCallback(onVideoFrame);
-        } else {
-          tex.userData.framePump = null;
-        }
-      };
-      tex.userData.framePump = video.requestVideoFrameCallback(onVideoFrame);
-      tex.userData.stopFramePump = () => {
-        if (tex.userData.framePump != null && video.cancelVideoFrameCallback) {
-          video.cancelVideoFrameCallback(tex.userData.framePump);
-        }
-        tex.userData.framePump = null;
-      };
-    } else {
-      // Fallback: throttle GPU uploads to ~30fps instead of every display refresh
-      let raf = 0;
-      let last = 0;
-      let running = true;
-      const tickFrames = (now) => {
-        if (!running) return;
-        raf = requestAnimationFrame(tickFrames);
-        if (video.paused || video.ended) return;
-        if (now - last < 33) return;
-        last = now;
-        markFrame();
-      };
-      raf = requestAnimationFrame(tickFrames);
-      tex.userData.framePump = true;
-      tex.userData.stopFramePump = () => {
-        running = false;
-        cancelAnimationFrame(raf);
-        tex.userData.framePump = null;
-      };
-    }
-  };
-
-  tex.userData.startFramePump = startFramePump;
+    console.log(
+      "[3D Theater] Screen video loaded",
+      video.videoWidth,
+      "x",
+      video.videoHeight
+    );
+  });
 
   const tryPlay = () => {
+    video.muted = true;
     const p = video.play();
     if (p && typeof p.catch === "function") {
-      p.then(() => startFramePump()).catch(() => {
-        const resume = () => {
-          video.play().then(() => startFramePump()).catch(() => {});
-          window.removeEventListener("pointerdown", resume);
-        };
-        window.addEventListener("pointerdown", resume);
+      p.then(() => {
+        tex.needsUpdate = true;
+        console.log("[3D Theater] Screen video playing");
+      }).catch((err) => {
+        console.warn(
+          "[3D Theater] Autoplay blocked — click/drag to start",
+          err?.message || err
+        );
       });
-    } else {
-      startFramePump();
     }
   };
 
-  video.addEventListener("playing", startFramePump);
-  video.addEventListener("pause", () => tex.userData.stopFramePump?.());
+  const unlock = () => {
+    video.muted = true;
+    video.play().then(() => {
+      tex.needsUpdate = true;
+    }).catch(() => {});
+  };
+  window.addEventListener("pointerdown", unlock, { passive: true });
+  window.addEventListener("keydown", unlock, { passive: true });
 
-  // Pause decoding when tab is hidden — important for large videos + battery/GPU
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      video.pause();
-      tex.userData.stopFramePump?.();
-    } else {
-      video.play().then(() => startFramePump()).catch(() => {});
-    }
+    if (document.hidden) video.pause();
+    else tryPlay();
   });
 
   attachScreenSource(video, tex).then(() => {
-    if (video.readyState >= 2) tryPlay();
-    else video.addEventListener("canplay", tryPlay, { once: true });
+    tryPlay();
+    video.addEventListener("canplay", tryPlay, { once: true });
   });
 
   return tex;
@@ -588,13 +567,11 @@ function makeScreenMovieTexture() {
 
 /**
  * Attach progressive MP4 or HLS (for large future trailers).
- * HLS loads in segments — browser never holds the whole file as one decode burst.
  */
 async function attachScreenSource(video, tex) {
   const { src, type } = SCREEN_MEDIA;
 
   if (type === "hls" || /\.m3u8($|\?)/i.test(src)) {
-    // Native HLS (Safari) or hls.js (Chrome/Firefox/Edge)
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = src;
       video.load();
@@ -621,7 +598,8 @@ async function attachScreenSource(video, tex) {
     }
   }
 
-  video.src = src;
+  const bust = src.includes("?") ? "&" : "?";
+  video.src = `${src}${bust}v=vid3`;
   video.load();
 }
 
@@ -629,11 +607,40 @@ function ensureScreenVideoPlaying() {
   const tex = scene.userData.screenTex;
   const video = tex?.userData?.video;
   if (!video) return;
-  if (video.paused) {
-    video.play().then(() => tex.userData.startFramePump?.()).catch(() => {});
+  video.muted = true;
+  if (video.paused || video.ended) {
+    video.play().then(() => {
+      tex.needsUpdate = true;
+    }).catch(() => {});
   } else {
-    tex.userData.startFramePump?.();
+    tex.needsUpdate = true;
   }
+}
+
+/** Force Screen_Surface to use a dedicated live video material */
+function applyVideoToScreenMesh(root, screenTex) {
+  const screen = root.getObjectByName("Screen_Surface");
+  if (!screen || !screen.isMesh) {
+    console.warn("[3D Theater] Screen_Surface mesh not found");
+    return;
+  }
+
+  screen.material = new THREE.MeshStandardMaterial({
+    name: "Mat_Screen_Video",
+    map: screenTex,
+    emissiveMap: screenTex,
+    emissive: new THREE.Color(0xffffff),
+    emissiveIntensity: 1.15,
+    color: new THREE.Color(0xffffff),
+    roughness: 0.55,
+    metalness: 0,
+    toneMapped: true,
+    side: THREE.DoubleSide,
+  });
+  screen.castShadow = false;
+  screen.receiveShadow = false;
+  screen.renderOrder = 2;
+  console.log("[3D Theater] Video material applied to Screen_Surface");
 }
 
 function collectSeats(root) {
@@ -741,7 +748,7 @@ function applyMaterials(root) {
         mat.map = screenTex;
         mat.emissiveMap = screenTex;
         mat.emissive.setHex(0xffffff);
-        mat.emissiveIntensity = 1.35;
+        mat.emissiveIntensity = 1.15;
         mat.color.setHex(0xffffff);
         mat.roughness = 0.45;
         mat.metalness = 0;
@@ -753,6 +760,8 @@ function applyMaterials(root) {
       mat.needsUpdate = true;
     }
   });
+
+  applyVideoToScreenMesh(root, screenTex);
 }
 
 function updateScreenTarget(root) {
@@ -1073,7 +1082,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid2";
+const ASSET_VERSION = "vid3";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
