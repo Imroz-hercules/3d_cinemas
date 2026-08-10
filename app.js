@@ -3,6 +3,19 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import Lenis from "lenis";
 
+/**
+ * Theater screen media.
+ * - type "mp4": progressive file (good up to ~50–100MB if encoded for web)
+ * - type "hls": adaptive streaming for large/long trailers (needs .m3u8 + segments)
+ *
+ * For a big future trailer, re-encode + package as HLS, then set:
+ *   src: "./textures/trailers/hercules/master.m3u8", type: "hls"
+ */
+const SCREEN_MEDIA = {
+  src: "./textures/Hercules.mp4",
+  type: "mp4", // "mp4" | "hls"
+};
+
 const canvas = document.getElementById("theater-canvas");
 const loaderEl = document.getElementById("loader");
 const progressBar = document.getElementById("progress-bar");
@@ -37,7 +50,8 @@ const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: "high-performance",
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Cap DPR — high-DPI + VideoTexture uploads is a common stutter source
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -460,31 +474,15 @@ function addPracticalLights(root) {
 
 function makeScreenMovieTexture() {
   const video = document.createElement("video");
-  video.src = "./textures/Hercules.mp4";
   video.crossOrigin = "anonymous";
   video.loop = true;
   video.muted = true;
   video.playsInline = true;
-  video.preload = "auto";
+  // metadata first — full buffer download is bad for large future trailers
+  video.preload = SCREEN_MEDIA.type === "hls" ? "metadata" : "auto";
   video.setAttribute("playsinline", "");
   video.setAttribute("webkit-playsinline", "");
-
-  const tryPlay = () => {
-    const p = video.play();
-    if (p && typeof p.catch === "function") {
-      p.catch(() => {
-        const resume = () => {
-          video.play().catch(() => {});
-          window.removeEventListener("pointerdown", resume);
-        };
-        window.addEventListener("pointerdown", resume);
-      });
-    }
-  };
-
-  if (video.readyState >= 2) tryPlay();
-  else video.addEventListener("canplay", tryPlay, { once: true });
-  video.load();
+  video.disablePictureInPicture = true;
 
   const tex = new THREE.VideoTexture(video);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -492,18 +490,150 @@ function makeScreenMovieTexture() {
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = false;
   tex.userData.video = video;
-  tex.userData.update = () => {
-    if (video.readyState >= video.HAVE_CURRENT_DATA) {
-      tex.needsUpdate = true;
+  tex.userData.hls = null;
+  tex.userData.framePump = null;
+
+  // Disable Three's default every-rAF needsUpdate — we drive uploads only on new frames
+  tex.update = function updateVideoTexture() {};
+
+  let lastFrameAt = 0;
+  const markFrame = () => {
+    if (video.readyState < video.HAVE_CURRENT_DATA) return;
+    // Skip duplicate marks within ~half a frame at 60fps displays
+    const now = performance.now();
+    if (now - lastFrameAt < 8) return;
+    lastFrameAt = now;
+    tex.needsUpdate = true;
+  };
+
+  const startFramePump = () => {
+    if (tex.userData.framePump) return;
+
+    if (typeof video.requestVideoFrameCallback === "function") {
+      const onVideoFrame = () => {
+        markFrame();
+        if (!video.paused && !video.ended) {
+          tex.userData.framePump = video.requestVideoFrameCallback(onVideoFrame);
+        } else {
+          tex.userData.framePump = null;
+        }
+      };
+      tex.userData.framePump = video.requestVideoFrameCallback(onVideoFrame);
+      tex.userData.stopFramePump = () => {
+        if (tex.userData.framePump != null && video.cancelVideoFrameCallback) {
+          video.cancelVideoFrameCallback(tex.userData.framePump);
+        }
+        tex.userData.framePump = null;
+      };
+    } else {
+      // Fallback: throttle GPU uploads to ~30fps instead of every display refresh
+      let raf = 0;
+      let last = 0;
+      let running = true;
+      const tickFrames = (now) => {
+        if (!running) return;
+        raf = requestAnimationFrame(tickFrames);
+        if (video.paused || video.ended) return;
+        if (now - last < 33) return;
+        last = now;
+        markFrame();
+      };
+      raf = requestAnimationFrame(tickFrames);
+      tex.userData.framePump = true;
+      tex.userData.stopFramePump = () => {
+        running = false;
+        cancelAnimationFrame(raf);
+        tex.userData.framePump = null;
+      };
     }
   };
+
+  tex.userData.startFramePump = startFramePump;
+
+  const tryPlay = () => {
+    const p = video.play();
+    if (p && typeof p.catch === "function") {
+      p.then(() => startFramePump()).catch(() => {
+        const resume = () => {
+          video.play().then(() => startFramePump()).catch(() => {});
+          window.removeEventListener("pointerdown", resume);
+        };
+        window.addEventListener("pointerdown", resume);
+      });
+    } else {
+      startFramePump();
+    }
+  };
+
+  video.addEventListener("playing", startFramePump);
+  video.addEventListener("pause", () => tex.userData.stopFramePump?.());
+
+  // Pause decoding when tab is hidden — important for large videos + battery/GPU
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      video.pause();
+      tex.userData.stopFramePump?.();
+    } else {
+      video.play().then(() => startFramePump()).catch(() => {});
+    }
+  });
+
+  attachScreenSource(video, tex).then(() => {
+    if (video.readyState >= 2) tryPlay();
+    else video.addEventListener("canplay", tryPlay, { once: true });
+  });
+
   return tex;
 }
 
+/**
+ * Attach progressive MP4 or HLS (for large future trailers).
+ * HLS loads in segments — browser never holds the whole file as one decode burst.
+ */
+async function attachScreenSource(video, tex) {
+  const { src, type } = SCREEN_MEDIA;
+
+  if (type === "hls" || /\.m3u8($|\?)/i.test(src)) {
+    // Native HLS (Safari) or hls.js (Chrome/Firefox/Edge)
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = src;
+      video.load();
+      return;
+    }
+    try {
+      const { default: Hls } = await import(
+        "https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.mjs"
+      );
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          maxBufferLength: 20,
+          maxMaxBufferLength: 40,
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        tex.userData.hls = hls;
+        return;
+      }
+    } catch (err) {
+      console.warn("[3D Theater] HLS load failed, falling back to src", err);
+    }
+  }
+
+  video.src = src;
+  video.load();
+}
+
 function ensureScreenVideoPlaying() {
-  const video = scene.userData.screenTex?.userData?.video;
-  if (!video || !video.paused) return;
-  video.play().catch(() => {});
+  const tex = scene.userData.screenTex;
+  const video = tex?.userData?.video;
+  if (!video) return;
+  if (video.paused) {
+    video.play().then(() => tex.userData.startFramePump?.()).catch(() => {});
+  } else {
+    tex.userData.startFramePump?.();
+  }
 }
 
 function collectSeats(root) {
@@ -943,7 +1073,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid1";
+const ASSET_VERSION = "vid2";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -1045,9 +1175,7 @@ function tick(now) {
   requestAnimationFrame(tick);
   if (bookingLenis) bookingLenis.raf(now);
   if (cameraTween) cameraTween.update(now);
-  if (scene.userData.screenTex?.userData.update) {
-    scene.userData.screenTex.userData.update(now);
-  }
+  // Video GPU uploads are driven by requestVideoFrameCallback — not every rAF
   if (autoOrbit && mode === "theater" && modelRoot && !cameraTween) {
     _orbitOffset.copy(camera.position).sub(controls.target);
     _orbitSpherical.setFromVector3(_orbitOffset);
