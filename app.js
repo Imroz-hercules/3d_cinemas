@@ -444,29 +444,44 @@ function getTheaterFocusBox(object) {
   return box;
 }
 
+function isMobileView() {
+  return window.innerWidth <= 720 || window.innerHeight / window.innerWidth > 1.15;
+}
+
 function fitCameraToObject(object) {
   const box = getTheaterFocusBox(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  // Slightly farther so the ring road / pavement stays in frame
-  const distance = maxDim * 1.35;
+  const mobile = isMobileView();
+  // Portrait phones need more distance + higher angle so the house clears UI chrome
+  const distance = maxDim * (mobile ? 2.05 : 1.35);
 
-  // Look at the true theater center so the house sits in the middle of the page
-  defaultTarget.set(center.x, center.y + size.y * 0.04, center.z);
+  // Look slightly lower on mobile so the building sits in the upper half of the frame
+  defaultTarget.set(
+    center.x,
+    center.y + size.y * (mobile ? -0.04 : 0.04),
+    center.z
+  );
 
-  // Starting view: elevated front angle — same hero framing as your screenshot
   defaultCam.set(
-    center.x + distance * 0.5,
-    center.y + distance * 0.48,
-    center.z + distance * 0.52
+    center.x + distance * (mobile ? 0.52 : 0.5),
+    center.y + distance * (mobile ? 0.68 : 0.48),
+    center.z + distance * (mobile ? 0.62 : 0.52)
   );
 
   enterTarget.set(center.x, center.y + size.y * 0.12, center.z - size.z * 0.02);
-  enterCam.set(center.x, center.y + size.y * 0.4, center.z + size.z * 0.18);
+  enterCam.set(
+    center.x,
+    center.y + size.y * (mobile ? 0.55 : 0.4),
+    center.z + size.z * (mobile ? 0.28 : 0.18)
+  );
 
   homeDistance = defaultCam.distanceTo(defaultTarget);
   applyHomeZoomLimits();
+
+  camera.fov = mobile ? 56 : 50;
+  camera.updateProjectionMatrix();
 
   camera.position.copy(defaultCam);
   controls.target.copy(defaultTarget);
@@ -2047,7 +2062,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid10";
+const ASSET_VERSION = "vid11";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2137,11 +2152,23 @@ controls.addEventListener("start", () => {
   }
 });
 
+let resizeRaf = 0;
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   bookingLenis?.resize();
+
+  // Re-frame home orbit when switching between mobile/desktop aspect
+  if (!modelReady || mode !== "theater" || cameraTween || isFlyingToSeat) return;
+  cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    if (!modelRoot || mode !== "theater") return;
+    const wasOrbit = autoOrbit;
+    fitCameraToObject(modelRoot);
+    autoOrbit = wasOrbit;
+    btnAuto.setAttribute("aria-pressed", String(wasOrbit));
+  });
 });
 
 const _orbitOffset = new THREE.Vector3();
