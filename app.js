@@ -641,9 +641,97 @@ function hasCinemaProp(root, pattern) {
 }
 
 /**
- * Blender-style roof: black U-frame lid with open center + white cove rim on inner edge.
+ * Sample outer top ring from Wall_Shell so the roof follows the curved walls.
  */
-function buildProceduralRoof(root, center, size, addMesh) {
+function sampleWallTopRing(shellMesh, yBand = 0.22) {
+  shellMesh.updateWorldMatrix(true, false);
+  const posAttr = shellMesh.geometry.getAttribute("position");
+  const v = new THREE.Vector3();
+  let maxY = -Infinity;
+
+  for (let i = 0; i < posAttr.count; i++) {
+    v.fromBufferAttribute(posAttr, i).applyMatrix4(shellMesh.matrixWorld);
+    if (v.y > maxY) maxY = v.y;
+  }
+
+  const minY = maxY - yBand;
+  const deduped = new Map();
+  for (let i = 0; i < posAttr.count; i++) {
+    v.fromBufferAttribute(posAttr, i).applyMatrix4(shellMesh.matrixWorld);
+    if (v.y < minY) continue;
+    const key = `${Math.round(v.x * 24)}_${Math.round(v.z * 24)}`;
+    if (!deduped.has(key)) deduped.set(key, new THREE.Vector3(v.x, v.y, v.z));
+  }
+
+  const points = [...deduped.values()];
+  if (points.length < 8) return { roofY: maxY, arc: [], centerX: 0, centerZ: 0 };
+
+  let cx = 0;
+  let cz = 0;
+  for (const p of points) {
+    cx += p.x;
+    cz += p.z;
+  }
+  cx /= points.length;
+  cz /= points.length;
+
+  const tagged = points
+    .map((p) => ({ p, a: Math.atan2(p.z - cz, p.x - cx) }))
+    .sort((a, b) => a.a - b.a);
+
+  // Largest angular gap = front opening — only roof the wall arc, not a chord across the U
+  const n = tagged.length;
+  let maxGap = -1;
+  let openAt = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    let gap = tagged[j].a - tagged[i].a;
+    if (j === 0) gap += Math.PI * 2;
+    if (gap > maxGap) {
+      maxGap = gap;
+      openAt = j;
+    }
+  }
+
+  const target = 40;
+  const step = Math.max(1, Math.floor(n / target));
+  const arc = [];
+  for (let i = 0; i < n - 1; i++) {
+    const idx = (openAt + i) % n;
+    if (i % step === 0) arc.push(tagged[idx].p);
+  }
+  if (arc.length && arc[arc.length - 1] !== tagged[(openAt + n - 2) % n].p) {
+    arc.push(tagged[(openAt + n - 2) % n].p);
+  }
+
+  return { roofY: maxY, arc, centerX: cx, centerZ: cz };
+}
+
+function addRingSegment(addMesh, mat, p0, p1, roofY, thick, depth, name) {
+  const dx = p1.x - p0.x;
+  const dz = p1.z - p0.z;
+  const len = Math.hypot(dx, dz) || 0.01;
+  const midX = (p0.x + p1.x) / 2;
+  const midZ = (p0.z + p1.z) / 2;
+  const mesh = addMesh(
+    new THREE.BoxGeometry(len, thick, depth),
+    mat,
+    midX,
+    roofY,
+    midZ,
+    1,
+    1,
+    1,
+    name
+  );
+  mesh.rotation.y = Math.atan2(dx, dz);
+  return mesh;
+}
+
+/**
+ * Roof ring aligned to Wall_Shell curve + Wall_Front lip (Blender U-lid look).
+ */
+function buildProceduralRoof(root, addMesh) {
   const roofMat = new THREE.MeshStandardMaterial({
     color: 0x060608,
     roughness: 0.93,
@@ -656,94 +744,193 @@ function buildProceduralRoof(root, center, size, addMesh) {
     roughness: 0.35,
   });
 
+  const shell = root.getObjectByName("Wall_Shell");
+  const frontWall = root.getObjectByName("Wall_Front");
+  const thick = 0.18;
+  const depth = 1.05;
+  let shellRoofY = null;
+
+  if (shell?.isMesh) {
+    const { roofY, arc, centerX, centerZ } = sampleWallTopRing(shell);
+    shellRoofY = roofY;
+
+    for (let i = 0; i < arc.length - 1; i++) {
+      addRingSegment(
+        addMesh,
+        roofMat,
+        arc[i],
+        arc[i + 1],
+        roofY + thick / 2,
+        thick,
+        depth,
+        `Roof_Shell_${i}`
+      );
+    }
+
+    const coveY = roofY - 0.04;
+    const inset = 0.82;
+    for (let i = 0; i < arc.length - 1; i++) {
+      const p0 = arc[i];
+      const p1 = arc[i + 1];
+      const i0 = new THREE.Vector3(
+        p0.x + (centerX - p0.x) * inset,
+        p0.y,
+        p0.z + (centerZ - p0.z) * inset
+      );
+      const i1 = new THREE.Vector3(
+        p1.x + (centerX - p1.x) * inset,
+        p1.y,
+        p1.z + (centerZ - p1.z) * inset
+      );
+      addRingSegment(
+        addMesh,
+        coveMat,
+        i0,
+        i1,
+        coveY,
+        0.08,
+        0.07,
+        `Cove_Shell_${i}`
+      );
+    }
+  }
+
+  if (frontWall?.isMesh) {
+    frontWall.updateWorldMatrix(true, false);
+    const fb = new THREE.Box3().setFromObject(frontWall);
+    const fs = fb.getSize(new THREE.Vector3());
+    const fc = fb.getCenter(new THREE.Vector3());
+    const lipY = (shellRoofY ?? fb.max.y) + thick / 2;
+    const lipW = fs.x * 0.34;
+
+    addMesh(
+      new THREE.BoxGeometry(lipW, thick, depth),
+      roofMat,
+      fc.x - fs.x * 0.33,
+      lipY,
+      fc.z,
+      1,
+      1,
+      1,
+      "Roof_Front_L"
+    );
+    addMesh(
+      new THREE.BoxGeometry(lipW, thick, depth),
+      roofMat,
+      fc.x + fs.x * 0.33,
+      lipY,
+      fc.z,
+      1,
+      1,
+      1,
+      "Roof_Front_R"
+    );
+
+    const coveY = lipY - thick / 2 - 0.04;
+    addMesh(
+      new THREE.BoxGeometry(lipW * 0.85, 0.08, 0.07),
+      coveMat,
+      fc.x - fs.x * 0.33,
+      coveY,
+      fc.z - 0.45,
+      1,
+      1,
+      1,
+      "Cove_Front_L"
+    );
+    addMesh(
+      new THREE.BoxGeometry(lipW * 0.85, 0.08, 0.07),
+      coveMat,
+      fc.x + fs.x * 0.33,
+      coveY,
+      fc.z - 0.45,
+      1,
+      1,
+      1,
+      "Cove_Front_R"
+    );
+  }
+
+  if (!shell?.isMesh && !frontWall?.isMesh) {
+    const box = getTheaterFocusBox(root);
+    buildProceduralRoofFallback(
+      box.getCenter(new THREE.Vector3()),
+      box.getSize(new THREE.Vector3()),
+      addMesh,
+      roofMat,
+      coveMat
+    );
+  }
+}
+
+/** Rectangular fallback — back at min Z, front at max Z */
+function buildProceduralRoofFallback(center, size, addMesh, roofMat, coveMat) {
   const roofY = center.y + size.y * 0.47;
   const thick = 0.2;
   const frame = Math.max(1.05, size.x * 0.11);
   const outerW = size.x * 0.9;
   const outerD = size.z * 0.86;
-  const frontZ = center.z - outerD / 2;
-  const backZ = center.z + outerD / 2;
+  const backZ = center.z - outerD / 2;
+  const frontZ = center.z + outerD / 2;
   const halfW = outerW / 2;
 
-  // Back roof bar (full width)
   addMesh(
-    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.BoxGeometry(outerW, thick, frame),
     roofMat,
     center.x,
     roofY,
-    backZ - frame / 2,
-    outerW,
-    thick,
-    frame,
+    backZ + frame / 2,
+    1,
+    1,
+    1,
     "Roof_Back"
   );
-
-  // Side arms (left / right)
   const sideLen = outerD - frame * 1.6;
   addMesh(
-    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.BoxGeometry(frame, thick, sideLen),
     roofMat,
     center.x - halfW + frame / 2,
     roofY,
-    center.z + frame * 0.15,
-    frame,
-    thick,
-    sideLen,
+    center.z,
+    1,
+    1,
+    1,
     "Roof_Left"
   );
   addMesh(
-    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.BoxGeometry(frame, thick, sideLen),
     roofMat,
     center.x + halfW - frame / 2,
     roofY,
-    center.z + frame * 0.15,
-    frame,
-    thick,
-    sideLen,
+    center.z,
+    1,
+    1,
+    1,
     "Roof_Right"
   );
-
-  // Front corner lips — U opens toward screen / front
   const frontLipW = outerW * 0.34;
   addMesh(
-    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.BoxGeometry(frontLipW, thick, frame),
     roofMat,
     center.x - halfW + frontLipW / 2,
     roofY,
-    frontZ + frame / 2,
-    frontLipW,
-    thick,
-    frame,
+    frontZ - frame / 2,
+    1,
+    1,
+    1,
     "Roof_Front_L"
   );
   addMesh(
-    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.BoxGeometry(frontLipW, thick, frame),
     roofMat,
     center.x + halfW - frontLipW / 2,
     roofY,
-    frontZ + frame / 2,
-    frontLipW,
-    thick,
-    frame,
+    frontZ - frame / 2,
+    1,
+    1,
+    1,
     "Roof_Front_R"
   );
-
-  // White cove strip on inner edge of roof (faces into auditorium)
-  const coveY = roofY - thick / 2 - 0.05;
-  const coveH = 0.09;
-  const coveInset = frame * 0.72;
-
-  const coveSpecs = [
-    ["Cove_Back", center.x, backZ - coveInset, outerW - frame * 2.2, coveH, 0.07],
-    ["Cove_Left", center.x - halfW + coveInset, center.z + frame * 0.12, 0.07, coveH, sideLen - frame],
-    ["Cove_Right", center.x + halfW - coveInset, center.z + frame * 0.12, 0.07, coveH, sideLen - frame],
-    ["Cove_Front_L", center.x - halfW + frontLipW * 0.55, frontZ + coveInset, frontLipW - frame, coveH, 0.07],
-    ["Cove_Front_R", center.x + halfW - frontLipW * 0.55, frontZ + coveInset, frontLipW - frame, coveH, 0.07],
-  ];
-
-  for (const [name, x, z, sx, sy, sz] of coveSpecs) {
-    addMesh(new THREE.BoxGeometry(1, 1, 1), coveMat, x, coveY, z, sx, sy, sz, name);
-  }
 }
 
 /**
@@ -1035,7 +1222,7 @@ function buildProceduralCinemaLayer(root) {
 
   // --- Blender-style U roof + cove rim ---
   if (needs.roof) {
-    buildProceduralRoof(root, center, size, addMesh);
+    buildProceduralRoof(root, addMesh);
   }
 
   root.add(group);
@@ -1860,7 +2047,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid9";
+const ASSET_VERSION = "vid10";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
