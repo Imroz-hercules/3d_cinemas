@@ -156,6 +156,8 @@ const cinema = {
   sampleCtx: null,
   lastGlowSample: 0,
   curtainOpenOffset: 2.6,
+  proceduralGroup: null,
+  usesProceduralFallback: false,
 };
 
 let modelRoot = null;
@@ -610,6 +612,325 @@ function collectCinemaLayer(root) {
     exitLights: cinema.exitLights.length,
   };
   console.log("[3D Theater] Cinema layer:", found);
+}
+
+function hasCinemaProp(root, pattern) {
+  let found = false;
+  root.traverse((obj) => {
+    if (found || obj.name === "Procedural_Cinema") return;
+    if (pattern.test(obj.name || "")) found = true;
+  });
+  return found;
+}
+
+/**
+ * When 3d_theater.glb is stale (not re-exported from Blender), add cinema props in code
+ * so the site still shows speakers, handrails, EXIT signs, masking, etc.
+ */
+function buildProceduralCinemaLayer(root) {
+  if (cinema.proceduralGroup) {
+    root.remove(cinema.proceduralGroup);
+    cinema.proceduralGroup.traverse((c) => {
+      if (c.geometry) c.geometry.dispose();
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      mats.forEach((m) => m?.dispose?.());
+    });
+    cinema.proceduralGroup = null;
+  }
+
+  const needs = {
+    speakers: !hasCinemaProp(root, /speaker|subwoofer|lcr/i),
+    handrails: !hasCinemaProp(root, /handrail|rail_/i),
+    exits: !hasCinemaProp(root, /^exit/i),
+    carpet: !hasCinemaProp(root, /carpet|runner/i),
+    mask: !hasCinemaProp(root, /screen_mask|mask/i),
+    soffit: !hasCinemaProp(root, /soffit|cove/i),
+  };
+
+  if (!Object.values(needs).some(Boolean)) {
+    cinema.usesProceduralFallback = false;
+    console.log("[3D Theater] GLB includes cinema props — procedural layer skipped");
+    return;
+  }
+
+  cinema.usesProceduralFallback = true;
+  console.warn(
+    "[3D Theater] Using procedural cinema props — re-export 3d_theater.glb from Blender to use your updated model"
+  );
+
+  const box = getTheaterFocusBox(root);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const screen = root.getObjectByName("Screen_Surface");
+  const screenBox = screen
+    ? new THREE.Box3().setFromObject(screen)
+    : box.clone();
+  const screenCenter = screenBox.getCenter(new THREE.Vector3());
+  const screenSize = screenBox.getSize(new THREE.Vector3());
+
+  const group = new THREE.Group();
+  group.name = "Procedural_Cinema";
+
+  const speakerMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0a0c,
+    roughness: 0.88,
+    metalness: 0.08,
+  });
+  const metalMat = new THREE.MeshStandardMaterial({
+    color: 0x8a8d92,
+    roughness: 0.32,
+    metalness: 0.88,
+  });
+  const carpetMat = new THREE.MeshStandardMaterial({
+    color: 0x1a100e,
+    roughness: 0.98,
+    metalness: 0,
+  });
+  const exitMat = new THREE.MeshStandardMaterial({
+    color: 0x0e6630,
+    emissive: 0x22ee66,
+    emissiveIntensity: 3.8,
+    roughness: 0.6,
+  });
+  const maskMat = new THREE.MeshStandardMaterial({
+    color: 0x020203,
+    roughness: 0.96,
+    metalness: 0,
+  });
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 0xd4d0cc,
+    roughness: 0.94,
+    metalness: 0,
+  });
+  const soffitMat = new THREE.MeshStandardMaterial({
+    color: 0x050508,
+    roughness: 0.9,
+    metalness: 0,
+  });
+
+  const addMesh = (geo, mat, x, y, z, sx = 1, sy = 1, sz = 1, name = "") => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.scale.set(sx, sy, sz);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    if (name) m.name = name;
+    group.add(m);
+    return m;
+  };
+
+  // --- Screen black masking ---
+  if (needs.mask && screenSize.x > 0) {
+    const t = 0.14;
+    const pad = 0.22;
+    const sx = screenSize.x + pad * 2;
+    const sy = screenSize.y + pad * 2;
+    const sz = screenSize.z + 0.08;
+    const sc = screenCenter;
+    addMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      maskMat,
+      sc.x,
+      sc.y + sy / 2 + t / 2,
+      sc.z - 0.04,
+      sx, t, sz,
+      "Screen_Mask_Top"
+    );
+    addMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      maskMat,
+      sc.x,
+      sc.y - sy / 2 - t / 2,
+      sc.z - 0.04,
+      sx, t, sz,
+      "Screen_Mask_Bottom"
+    );
+    addMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      maskMat,
+      sc.x - sx / 2 - t / 2,
+      sc.y,
+      sc.z - 0.04,
+      t, sy, sz,
+      "Screen_Mask_Left"
+    );
+    addMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      maskMat,
+      sc.x + sx / 2 + t / 2,
+      sc.y,
+      sc.z - 0.04,
+      t, sy, sz,
+      "Screen_Mask_Right"
+    );
+  }
+
+  // --- LCR + wall speakers ---
+  if (needs.speakers) {
+    const frontZ = screenCenter.z + 0.35;
+    const lcrY = center.y - size.y * 0.12;
+
+    for (const [name, x, y, h] of [
+      ["Speaker_LCR_L", screenCenter.x - screenSize.x * 0.38, lcrY, 0.55],
+      ["Speaker_LCR_C", screenCenter.x, lcrY - 0.15, 0.45],
+      ["Speaker_LCR_R", screenCenter.x + screenSize.x * 0.38, lcrY, 0.55],
+    ]) {
+      addMesh(new THREE.BoxGeometry(0.55, 0.45, 0.28), speakerMat, x, y, frontZ, 1, 1, 1, name);
+    }
+
+    const wallX = size.x * 0.42;
+    const wallZs = [
+      center.z - size.z * 0.28,
+      center.z - size.z * 0.05,
+      center.z + size.z * 0.18,
+    ];
+    for (let i = 0; i < wallZs.length; i++) {
+      const z = wallZs[i];
+      const h = 1.6 + (i % 2) * 0.3;
+      addMesh(
+        new THREE.BoxGeometry(0.38, h, 0.32),
+        speakerMat,
+        center.x - wallX,
+        center.y + h * 0.45,
+        z,
+        1, 1, 1,
+        `Speaker_Wall_L_${i}`
+      );
+      addMesh(
+        new THREE.BoxGeometry(0.38, h, 0.32),
+        speakerMat,
+        center.x + wallX,
+        center.y + h * 0.45,
+        z,
+        1, 1, 1,
+        `Speaker_Wall_R_${i}`
+      );
+    }
+  }
+
+  // --- EXIT signs (rear corners) ---
+  if (needs.exits) {
+    const exitY = center.y + size.y * 0.55;
+    const exitZ = center.z + size.z * 0.38;
+    for (const [name, x] of [
+      ["Exit_Left", center.x - size.x * 0.38],
+      ["Exit_Right", center.x + size.x * 0.38],
+    ]) {
+      addMesh(new THREE.BoxGeometry(0.65, 0.22, 0.06), exitMat, x, exitY, exitZ, 1, 1, 1, name);
+    }
+  }
+
+  // --- Aisle carpet + handrails ---
+  const aisleX = center.x;
+  const frontZ = center.z - size.z * 0.38;
+  const backZ = center.z + size.z * 0.32;
+  const midZ = (frontZ + backZ) * 0.5;
+
+  if (needs.carpet) {
+    addMesh(
+      new THREE.BoxGeometry(0.95, 0.02, Math.abs(backZ - frontZ)),
+      carpetMat,
+      aisleX,
+      center.y + 0.06,
+      (frontZ + backZ) / 2,
+      1, 1, 1,
+      "Aisle_Runner_Center"
+    );
+    addMesh(
+      new THREE.BoxGeometry(size.x * 0.55, 0.02, 0.85),
+      carpetMat,
+      center.x,
+      center.y + 0.06,
+      midZ,
+      1, 1, 1,
+      "Aisle_Runner_Cross"
+    );
+  }
+
+  if (needs.handrails) {
+    const postGeo = new THREE.CylinderGeometry(0.035, 0.04, 1, 8);
+    const railLen = Math.abs(backZ - frontZ);
+    const railY = center.y + 0.82;
+
+    addMesh(
+      new THREE.BoxGeometry(0.05, 0.05, railLen),
+      metalMat,
+      aisleX - 0.48,
+      railY,
+      (frontZ + backZ) / 2,
+      1, 1, 1,
+      "Handrail_Center_L"
+    );
+    addMesh(
+      new THREE.BoxGeometry(0.05, 0.05, railLen),
+      metalMat,
+      aisleX + 0.48,
+      railY,
+      (frontZ + backZ) / 2,
+      1, 1, 1,
+      "Handrail_Center_R"
+    );
+
+    for (let z = frontZ; z <= backZ; z += 1.8) {
+      addMesh(postGeo, metalMat, aisleX - 0.48, railY - 0.4, z, 1, 0.8, 1, "Handrail_Post");
+      addMesh(postGeo, metalMat, aisleX + 0.48, railY - 0.4, z, 1, 0.8, 1, "Handrail_Post");
+    }
+
+    addMesh(
+      new THREE.BoxGeometry(size.x * 0.5, 0.05, 0.05),
+      metalMat,
+      center.x,
+      railY,
+      midZ,
+      1, 1, 1,
+      "Handrail_Cross"
+    );
+  }
+
+  // --- Acoustic panels on curved walls ---
+  if (needs.speakers) {
+    const panelCount = 5;
+    for (let i = 0; i < panelCount; i++) {
+      const t = i / (panelCount - 1);
+      const z = frontZ + (backZ - frontZ) * t * 0.85;
+      const xOff = size.x * 0.36;
+      addMesh(
+        new THREE.BoxGeometry(0.06, 1.1, 0.55),
+        panelMat,
+        center.x - xOff,
+        center.y + 0.9,
+        z,
+        1, 1, 1,
+        `Acoustic_Panel_L_${i}`
+      );
+      addMesh(
+        new THREE.BoxGeometry(0.06, 1.1, 0.55),
+        panelMat,
+        center.x + xOff,
+        center.y + 0.9,
+        z,
+        1, 1, 1,
+        `Acoustic_Panel_R_${i}`
+      );
+    }
+  }
+
+  // --- Ceiling soffit ring ---
+  if (needs.soffit) {
+    addMesh(
+      new THREE.BoxGeometry(size.x * 0.82, 0.12, size.z * 0.78),
+      soffitMat,
+      center.x,
+      center.y + size.y * 0.92,
+      center.z - size.z * 0.02,
+      1, 1, 1,
+      "Ceiling_Soffit"
+    );
+  }
+
+  root.add(group);
+  cinema.proceduralGroup = group;
+  setupExitLights(root);
 }
 
 function setupExitLights(root) {
@@ -1404,7 +1725,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid7";
+const ASSET_VERSION = "vid8";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -1416,6 +1737,7 @@ loader.load(
 
     collectSeats(modelRoot);
     collectCinemaLayer(modelRoot);
+    buildProceduralCinemaLayer(modelRoot);
     updateScreenTarget(modelRoot);
     addPracticalLights(modelRoot);
 
