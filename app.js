@@ -21,7 +21,6 @@ const loaderEl = document.getElementById("loader");
 const progressBar = document.getElementById("progress-bar");
 const loaderText = document.getElementById("loader-text");
 const btnAuto = document.getElementById("btn-auto");
-const btnBookCta = document.getElementById("btn-book-cta");
 const tabTheater = document.getElementById("tab-theater");
 const tabBooking = document.getElementById("tab-booking");
 const bookingPanel = document.getElementById("booking-panel");
@@ -57,8 +56,8 @@ renderer.toneMappingExposure = 0.92;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-// Dark night plate — matches the Blender lighting reference
-const NIGHT = 0x05070c;
+// Dark cyan night plate — matches the Visual Booking UI theme
+const NIGHT = 0x050d10;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(NIGHT);
 scene.fog = new THREE.FogExp2(NIGHT, 0.012);
@@ -633,7 +632,7 @@ function collectCinemaLayer(root) {
   setupExitLights(root);
 
   if (!cinema.seatAccentLight) {
-    cinema.seatAccentLight = new THREE.PointLight(0xe8a54b, 0, 2.8, 2);
+    cinema.seatAccentLight = new THREE.PointLight(0x2ec4c6, 0, 2.8, 2);
     scene.add(cinema.seatAccentLight);
   }
 
@@ -1761,8 +1760,8 @@ function highlightSeat(seatName) {
 
   if (!highlightMat) {
     highlightMat = new THREE.MeshStandardMaterial({
-      color: 0xe8a54b,
-      emissive: 0xe8a54b,
+      color: 0x2ec4c6,
+      emissive: 0x2ec4c6,
       emissiveIntensity: 0.7,
       roughness: 0.5,
       metalness: 0.05,
@@ -2060,7 +2059,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid12";
+const ASSET_VERSION = "vid14";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2102,10 +2101,6 @@ loader.load(
 
 tabTheater.addEventListener("click", () => setMode("theater"));
 tabBooking.addEventListener("click", () => {
-  ensureScreenVideoPlaying();
-  setMode("booking");
-});
-btnBookCta.addEventListener("click", () => {
   ensureScreenVideoPlaying();
   setMode("booking");
 });
