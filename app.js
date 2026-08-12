@@ -750,15 +750,23 @@ function hasCinemaProp(root, pattern) {
 /**
  * Sample outer top ring from Wall_Shell so the roof follows the curved walls.
  */
-function sampleWallTopRing(shellMesh, yBand = 0.22) {
+function sampleWallTopRing(shellMesh, yBand = 0.35) {
   shellMesh.updateWorldMatrix(true, false);
   const posAttr = shellMesh.geometry.getAttribute("position");
   const v = new THREE.Vector3();
   let maxY = -Infinity;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
 
   for (let i = 0; i < posAttr.count; i++) {
     v.fromBufferAttribute(posAttr, i).applyMatrix4(shellMesh.matrixWorld);
     if (v.y > maxY) maxY = v.y;
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.z < minZ) minZ = v.z;
+    if (v.z > maxZ) maxZ = v.z;
   }
 
   const minY = maxY - yBand;
@@ -766,27 +774,26 @@ function sampleWallTopRing(shellMesh, yBand = 0.22) {
   for (let i = 0; i < posAttr.count; i++) {
     v.fromBufferAttribute(posAttr, i).applyMatrix4(shellMesh.matrixWorld);
     if (v.y < minY) continue;
-    const key = `${Math.round(v.x * 24)}_${Math.round(v.z * 24)}`;
-    if (!deduped.has(key)) deduped.set(key, new THREE.Vector3(v.x, v.y, v.z));
+    const key = `${Math.round(Math.atan2(v.z, v.x) * 48)}`;
+    const prev = deduped.get(key);
+    const r = Math.hypot(v.x, v.z);
+    if (!prev || r > prev.r) {
+      deduped.set(key, { p: new THREE.Vector3(v.x, v.y, v.z), r });
+    }
   }
 
-  const points = [...deduped.values()];
-  if (points.length < 8) return { roofY: maxY, arc: [], centerX: 0, centerZ: 0 };
-
-  let cx = 0;
-  let cz = 0;
-  for (const p of points) {
-    cx += p.x;
-    cz += p.z;
+  const points = [...deduped.values()].map((d) => d.p);
+  if (points.length < 8) {
+    return { roofY: maxY, arc: [], centerX: 0, centerZ: 0 };
   }
-  cx /= points.length;
-  cz /= points.length;
+
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
 
   const tagged = points
     .map((p) => ({ p, a: Math.atan2(p.z - cz, p.x - cx) }))
     .sort((a, b) => a.a - b.a);
 
-  // Largest angular gap = front opening — only roof the wall arc, not a chord across the U
   const n = tagged.length;
   let maxGap = -1;
   let openAt = 0;
@@ -800,105 +807,145 @@ function sampleWallTopRing(shellMesh, yBand = 0.22) {
     }
   }
 
-  const target = 40;
-  const step = Math.max(1, Math.floor(n / target));
   const arc = [];
   for (let i = 0; i < n - 1; i++) {
-    const idx = (openAt + i) % n;
-    if (i % step === 0) arc.push(tagged[idx].p);
-  }
-  if (arc.length && arc[arc.length - 1] !== tagged[(openAt + n - 2) % n].p) {
-    arc.push(tagged[(openAt + n - 2) % n].p);
+    arc.push(tagged[(openAt + i) % n].p);
   }
 
   return { roofY: maxY, arc, centerX: cx, centerZ: cz };
 }
 
-function addRingSegment(addMesh, mat, p0, p1, roofY, thick, depth, name) {
-  const dx = p1.x - p0.x;
-  const dz = p1.z - p0.z;
-  const len = Math.hypot(dx, dz) || 0.01;
-  const midX = (p0.x + p1.x) / 2;
-  const midZ = (p0.z + p1.z) / 2;
-  const mesh = addMesh(
-    new THREE.BoxGeometry(len, thick, depth),
-    mat,
-    midX,
-    roofY,
-    midZ,
-    1,
-    1,
-    1,
-    name
-  );
-  mesh.rotation.y = Math.atan2(dx, dz);
+/** Continuous flat U soffit mesh (matches Blender Soffit_Ring). */
+function buildSoffitRingMesh(arc, centerX, centerZ, roofY, options = {}) {
+  const { thick = 0.22, outW = 0.28, inW = 1.45 } = options;
+  if (arc.length < 3) return null;
+
+  const topY = roofY + thick;
+  const botY = roofY;
+  const positions = [];
+  const indices = [];
+  const outer = [];
+  const inner = [];
+
+  for (const p of arc) {
+    const dx = p.x - centerX;
+    const dz = p.z - centerZ;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = dx / len;
+    const nz = dz / len;
+    outer.push(new THREE.Vector3(p.x + nx * outW, 0, p.z + nz * outW));
+    inner.push(new THREE.Vector3(p.x - nx * inW, 0, p.z - nz * inW));
+  }
+
+  for (let i = 0; i < outer.length; i++) {
+    const o = outer[i];
+    const inn = inner[i];
+    positions.push(o.x, topY, o.z);
+    positions.push(inn.x, topY, inn.z);
+    positions.push(o.x, botY, o.z);
+    positions.push(inn.x, botY, inn.z);
+  }
+
+  const stride = 4;
+  for (let i = 0; i < outer.length - 1; i++) {
+    const a = i * stride;
+    const b = (i + 1) * stride;
+    indices.push(a, b, a + 1, a + 1, b, b + 1);
+    indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
+    indices.push(a, a + 2, b, a + 2, b + 2, b);
+    indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
+  }
+
+  const last = (outer.length - 1) * stride;
+  indices.push(0, 1, 3, 0, 3, 2);
+  indices.push(last, last + 2, last + 3, last, last + 3, last + 1);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x0a0a0c,
+    roughness: 0.92,
+    metalness: 0.02,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = "Soffit_Ring";
+  mesh.castShadow = QUALITY_OPTS.shadows;
+  mesh.receiveShadow = QUALITY_OPTS.shadows;
   return mesh;
 }
 
 /**
- * Roof ring aligned to Wall_Shell curve + Wall_Front lip (Blender U-lid look).
+ * Blender-style Soffit_Ring: continuous U lid on Wall_Shell + front lips.
  */
 function buildProceduralRoof(root, addMesh) {
   const roofMat = new THREE.MeshStandardMaterial({
-    color: 0x060608,
-    roughness: 0.93,
+    color: 0x0a0a0c,
+    roughness: 0.92,
     metalness: 0.02,
   });
   const coveMat = new THREE.MeshStandardMaterial({
-    color: 0xf8f8fc,
-    emissive: 0xffffff,
-    emissiveIntensity: 5.5,
-    roughness: 0.35,
+    color: 0xf4f7fa,
+    emissive: 0xddeeff,
+    emissiveIntensity: QUALITY === "low" ? 2.2 : 4.2,
+    roughness: 0.4,
   });
 
   const shell = root.getObjectByName("Wall_Shell");
   const frontWall = root.getObjectByName("Wall_Front");
-  const thick = 0.18;
-  const depth = 1.05;
+  const thick = 0.22;
   let shellRoofY = null;
+
+  const parent = addMesh(
+    new THREE.BoxGeometry(0.01, 0.01, 0.01),
+    roofMat,
+    0,
+    -50,
+    0,
+    1,
+    1,
+    1,
+    "Soffit_Anchor"
+  ).parent;
 
   if (shell?.isMesh) {
     const { roofY, arc, centerX, centerZ } = sampleWallTopRing(shell);
     shellRoofY = roofY;
+    const soffit = buildSoffitRingMesh(arc, centerX, centerZ, roofY, {
+      thick,
+      outW: 0.28,
+      inW: 1.45,
+    });
+    if (soffit) {
+      parent.add(soffit);
+      console.log(
+        `[Visual Booking] Built procedural Soffit_Ring (${arc.length} samples @ y=${roofY.toFixed(2)})`
+      );
 
-    for (let i = 0; i < arc.length - 1; i++) {
-      addRingSegment(
-        addMesh,
-        roofMat,
-        arc[i],
-        arc[i + 1],
-        roofY + thick / 2,
-        thick,
-        depth,
-        `Roof_Shell_${i}`
-      );
-    }
-
-    const coveY = roofY - 0.04;
-    const inset = 0.82;
-    for (let i = 0; i < arc.length - 1; i++) {
-      const p0 = arc[i];
-      const p1 = arc[i + 1];
-      const i0 = new THREE.Vector3(
-        p0.x + (centerX - p0.x) * inset,
-        p0.y,
-        p0.z + (centerZ - p0.z) * inset
-      );
-      const i1 = new THREE.Vector3(
-        p1.x + (centerX - p1.x) * inset,
-        p1.y,
-        p1.z + (centerZ - p1.z) * inset
-      );
-      addRingSegment(
-        addMesh,
-        coveMat,
-        i0,
-        i1,
-        coveY,
-        0.08,
-        0.07,
-        `Cove_Shell_${i}`
-      );
+      for (let i = 0; i < arc.length - 1; i += Math.max(1, Math.floor(arc.length / 24))) {
+        const p0 = arc[i];
+        const dx = p0.x - centerX;
+        const dz = p0.z - centerZ;
+        const len = Math.hypot(dx, dz) || 1;
+        const nx = dx / len;
+        const nz = dz / len;
+        const ix = p0.x - nx * 1.25;
+        const iz = p0.z - nz * 1.25;
+        const cove = new THREE.Mesh(
+          new THREE.BoxGeometry(0.55, 0.07, 0.08),
+          coveMat
+        );
+        cove.name = `Cove_Shell_${i}`;
+        cove.position.set(ix, roofY - 0.02, iz);
+        cove.lookAt(centerX, roofY - 0.02, centerZ);
+        cove.rotateY(Math.PI / 2);
+        parent.add(cove);
+      }
+    } else {
+      console.warn("[Visual Booking] Soffit_Ring build failed — empty wall arc");
     }
   }
 
@@ -908,14 +955,15 @@ function buildProceduralRoof(root, addMesh) {
     const fs = fb.getSize(new THREE.Vector3());
     const fc = fb.getCenter(new THREE.Vector3());
     const lipY = (shellRoofY ?? fb.max.y) + thick / 2;
-    const lipW = fs.x * 0.34;
+    const lipW = fs.x * 0.32;
+    const depth = 1.2;
 
     addMesh(
       new THREE.BoxGeometry(lipW, thick, depth),
       roofMat,
-      fc.x - fs.x * 0.33,
+      fc.x - fs.x * 0.34,
       lipY,
-      fc.z,
+      fc.z - 0.15,
       1,
       1,
       1,
@@ -924,37 +972,13 @@ function buildProceduralRoof(root, addMesh) {
     addMesh(
       new THREE.BoxGeometry(lipW, thick, depth),
       roofMat,
-      fc.x + fs.x * 0.33,
+      fc.x + fs.x * 0.34,
       lipY,
-      fc.z,
+      fc.z - 0.15,
       1,
       1,
       1,
       "Roof_Front_R"
-    );
-
-    const coveY = lipY - thick / 2 - 0.04;
-    addMesh(
-      new THREE.BoxGeometry(lipW * 0.85, 0.08, 0.07),
-      coveMat,
-      fc.x - fs.x * 0.33,
-      coveY,
-      fc.z - 0.45,
-      1,
-      1,
-      1,
-      "Cove_Front_L"
-    );
-    addMesh(
-      new THREE.BoxGeometry(lipW * 0.85, 0.08, 0.07),
-      coveMat,
-      fc.x + fs.x * 0.33,
-      coveY,
-      fc.z - 0.45,
-      1,
-      1,
-      1,
-      "Cove_Front_R"
     );
   }
 
@@ -2172,7 +2196,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid17";
+const ASSET_VERSION = "vid18";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
