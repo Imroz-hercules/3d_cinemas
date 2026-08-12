@@ -452,9 +452,10 @@ function applyCinemaMaterialRules(mat, meshName) {
     mat.metalness = 0;
     return;
   }
-  if (/soffit|mat_soffit/.test(key)) {
-    mat.color.setRGB(0.02, 0.02, 0.025);
-    mat.roughness = 0.9;
+  if (/soffit|mat_soffit|soffit_ring/.test(key)) {
+    mat.color.setRGB(0.04, 0.04, 0.05);
+    mat.roughness = 0.92;
+    mat.metalness = 0.02;
     return;
   }
   if (/roof|mat_roof|roof_lid|roof_top/.test(key) && !/cove/.test(key)) {
@@ -505,7 +506,7 @@ function applyHomeZoomLimits() {
 function getTheaterFocusBox(object) {
   const box = new THREE.Box3();
   let found = false;
-  const focusNames = /^(Wall_Shell|Wall_Front|Screen_|Stage|Floor_|Seat_)/i;
+  const focusNames = /^(Wall_Shell|Wall_Front|Screen_|Stage|Floor_|Seat_|Soffit_|Roof_)/i;
 
   object.traverse((child) => {
     if (!child.isMesh) return;
@@ -727,8 +728,14 @@ function collectCinemaLayer(root) {
   const found = {
     curtains: !!(cinema.curtains.left && cinema.curtains.right),
     exitLights: cinema.exitLights.length,
+    soffitRing: !!root.getObjectByName("Soffit_Ring"),
   };
-  console.log("[3D Theater] Cinema layer:", found);
+  console.log("[Visual Booking] Cinema layer:", found);
+  if (!found.soffitRing) {
+    console.warn(
+      "[Visual Booking] Soffit_Ring not in GLB — run export_theater.py in Blender, then refresh"
+    );
+  }
 }
 
 function hasCinemaProp(root, pattern) {
@@ -1049,7 +1056,8 @@ function buildProceduralCinemaLayer(root) {
   }
 
   const needs = {
-    roof: !hasCinemaProp(root, /^roof_|roof_lid|roof_top|roof_frame/i),
+    // Skip procedural roof when Blender Soffit_Ring / Roof_* is in the GLB
+    roof: !hasCinemaProp(root, /soffit_ring|^soffit_|^roof_|roof_lid|roof_top|roof_frame/i),
     speakers: !hasCinemaProp(root, /speaker|subwoofer|lcr/i),
     handrails: !hasCinemaProp(root, /handrail|rail_/i),
     exits: !hasCinemaProp(root, /^exit/i),
@@ -1792,9 +1800,16 @@ function applyMaterials(root) {
       } else if (name.includes("sign")) {
         mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 1, 3.5);
         if (mat.emissive && mat.emissive.getHex() === 0) mat.emissive.copy(mat.color);
-      } else if (/^mat_roof|roof/.test(name) && !/cove/.test(name)) {
-        mat.color.setRGB(0.04, 0.04, 0.05);
-        mat.roughness = 0.92;
+      } else if (
+        /^mat_roof|mat_soffit|roof/.test(name) ||
+        /^soffit/i.test(meshName) ||
+        /^roof_/i.test(meshName)
+      ) {
+        if (!/cove/.test(name) && !/^cove_/i.test(meshName)) {
+          mat.color.setRGB(0.04, 0.04, 0.05);
+          mat.roughness = 0.92;
+          mat.metalness = 0.02;
+        }
       } else if (/cove|mat_cove/.test(name) || /^cove_/i.test(meshName)) {
         mat.emissive = mat.emissive || new THREE.Color();
         mat.emissive.setRGB(1, 1, 1);
@@ -2157,7 +2172,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid16";
+const ASSET_VERSION = "vid17";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
