@@ -146,6 +146,18 @@ scene.add(interiorFill);
 /** @type {THREE.Light[]} */
 const practicalLights = [];
 
+/** Cinema realism layer — curtains, exit lights, video-tinted spill */
+const cinema = {
+  curtains: { left: null, right: null, leftRest: null, rightRest: null },
+  curtainAnim: null,
+  exitLights: [],
+  seatAccentLight: null,
+  sampleCanvas: null,
+  sampleCtx: null,
+  lastGlowSample: 0,
+  curtainOpenOffset: 2.6,
+};
+
 let modelRoot = null;
 let screenTarget = new THREE.Vector3(0, 2.8, -10);
 let mode = "theater";
@@ -304,10 +316,99 @@ function snapCameraTo(pos, target) {
 
 function isRoofObject(obj) {
   const name = (obj.name || "").toLowerCase();
+  // Hide full roof for orbit view, but keep interior soffit/cove visible
+  if (name.includes("soffit") || name.includes("cove")) return false;
   if (name.includes("roof")) return true;
   if (!obj.isMesh || !obj.material) return false;
   const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-  return mats.some((m) => m && /roof/i.test(m.name || ""));
+  return mats.some((m) => m && /roof/i.test(m.name || "") && !/soffit|cove/i.test(m.name || ""));
+}
+
+function meshMaterialKey(meshName, matName) {
+  return `${(meshName || "").toLowerCase()} ${(matName || "").toLowerCase()}`;
+}
+
+function isSeatHighlightMesh(meshName, matName) {
+  const key = meshMaterialKey(meshName, matName);
+  if (/armrest|cup|holder|sticker|label|frame|metal|rail/.test(key)) return false;
+  return /seat_fabric|seat_r\d|seat_back|seat_cushion/.test(key);
+}
+
+/** Tune materials for new cinema props from Blender */
+function applyCinemaMaterialRules(mat, meshName) {
+  const key = meshMaterialKey(meshName, mat.name);
+
+  if (/speaker|subwoofer|lcr/.test(key)) {
+    mat.color.setRGB(0.04, 0.04, 0.045);
+    mat.roughness = 0.88;
+    mat.metalness = 0.08;
+    return;
+  }
+  if (/handrail|rail_|chrome|mat_metal|mat_chrome/.test(key)) {
+    mat.color.setRGB(0.55, 0.56, 0.58);
+    mat.roughness = 0.32;
+    mat.metalness = 0.88;
+    return;
+  }
+  if (/carpet|runner|mat_carpet|aisle_runner/.test(key)) {
+    mat.color.setRGB(0.12, 0.08, 0.07);
+    mat.roughness = 0.98;
+    mat.metalness = 0;
+    return;
+  }
+  if (/exit|emergency|mat_exit/.test(key)) {
+    mat.emissive = mat.emissive || new THREE.Color();
+    mat.emissive.setRGB(0.15, 0.95, 0.35);
+    mat.emissiveIntensity = 4.2;
+    mat.color.setRGB(0.08, 0.55, 0.22);
+    return;
+  }
+  if (/armrest|cup|holder|mat_armrest|mat_cup|mat_plastic/.test(key)) {
+    mat.color.setRGB(0.07, 0.07, 0.075);
+    mat.roughness = 0.78;
+    mat.metalness = 0.05;
+    return;
+  }
+  if (/mask|masking|mat_mask|screen_mask/.test(key)) {
+    mat.color.setRGB(0.015, 0.015, 0.018);
+    mat.roughness = 0.96;
+    mat.metalness = 0;
+    return;
+  }
+  if (/acoustic|baffle|panel|mat_acoustic|mat_fabric/.test(key)) {
+    mat.color.setRGB(0.82, 0.8, 0.78);
+    mat.roughness = 0.94;
+    mat.metalness = 0;
+    return;
+  }
+  if (/soffit|cove|mat_soffit/.test(key)) {
+    mat.color.setRGB(0.02, 0.02, 0.025);
+    mat.roughness = 0.9;
+    return;
+  }
+  if (/stage_lip|lip/.test(key)) {
+    mat.color.setRGB(0.03, 0.03, 0.035);
+    mat.roughness = 0.85;
+    return;
+  }
+  if (/perfor|grille/.test(key)) {
+    mat.color.setRGB(0.025, 0.025, 0.03);
+    mat.roughness = 0.92;
+    mat.metalness = 0.15;
+    return;
+  }
+  if (/sticker|seat_label|row_label/.test(key)) {
+    mat.emissive = mat.emissive || new THREE.Color();
+    mat.emissive.setRGB(0.35, 0.35, 0.38);
+    mat.emissiveIntensity = 0.6;
+    mat.color.setRGB(0.75, 0.75, 0.78);
+    return;
+  }
+  if (/curtain/.test(key)) {
+    mat.color.setRGB(0.28, 0.04, 0.06);
+    mat.roughness = 0.92;
+    mat.metalness = 0;
+  }
 }
 
 function applyHomeZoomLimits() {
@@ -454,6 +555,15 @@ function addPracticalLights(root) {
       return;
     }
 
+    if (n.includes("step_light") || n.includes("aisle_led") || n.includes("stage_lip")) {
+      const step = new THREE.PointLight(0xffc890, 0.85, 2.2, 2.2);
+      step.position.copy(world);
+      step.position.y += 0.04;
+      scene.add(step);
+      practicalLights.push(step);
+      return;
+    }
+
     // Every other bollard — soft ground pools without flooding the scene
     if (n.startsWith("bollard")) {
       const idx = Number((child.name.match(/\.(\d+)$/) || [])[1] || 0);
@@ -467,6 +577,146 @@ function addPracticalLights(root) {
   });
 
   console.log(`[3D Theater] Practical lights: ${practicalLights.length}`);
+}
+
+function collectCinemaLayer(root) {
+  cinema.curtains.left = root.getObjectByName("Curtain_Left");
+  cinema.curtains.right = root.getObjectByName("Curtain_Right");
+
+  if (cinema.curtains.left) {
+    cinema.curtains.leftRest = cinema.curtains.left.position.clone();
+  }
+  if (cinema.curtains.right) {
+    cinema.curtains.rightRest = cinema.curtains.right.position.clone();
+  }
+
+  // Estimate open travel from screen width if curtains exist
+  const screen = root.getObjectByName("Screen_Surface");
+  if (screen && cinema.curtains.leftRest) {
+    const box = new THREE.Box3().setFromObject(screen);
+    const size = box.getSize(new THREE.Vector3());
+    cinema.curtainOpenOffset = Math.max(2.2, size.x * 0.38);
+  }
+
+  setupExitLights(root);
+
+  if (!cinema.seatAccentLight) {
+    cinema.seatAccentLight = new THREE.PointLight(0xe8a54b, 0, 2.8, 2);
+    scene.add(cinema.seatAccentLight);
+  }
+
+  const found = {
+    curtains: !!(cinema.curtains.left && cinema.curtains.right),
+    exitLights: cinema.exitLights.length,
+  };
+  console.log("[3D Theater] Cinema layer:", found);
+}
+
+function setupExitLights(root) {
+  for (const light of cinema.exitLights) {
+    scene.remove(light);
+    light.dispose?.();
+  }
+  cinema.exitLights.length = 0;
+
+  root.updateMatrixWorld(true);
+  root.traverse((child) => {
+    if (!child.isMesh) return;
+    const n = (child.name || "").toLowerCase();
+    if (!/^exit/.test(n) && !n.includes("exit_sign") && !n.includes("emergency")) return;
+
+    const world = new THREE.Vector3();
+    child.getWorldPosition(world);
+    const glow = new THREE.PointLight(0x44ff88, 1.4, 5.5, 2);
+    glow.position.copy(world);
+    glow.position.y += 0.12;
+    scene.add(glow);
+    cinema.exitLights.push(glow);
+  });
+}
+
+function animateCurtains(open, duration = 1400) {
+  const { left, right, leftRest, rightRest } = cinema.curtains;
+  if (!left || !right || !leftRest || !rightRest) return;
+
+  const offset = cinema.curtainOpenOffset;
+  const endL = leftRest.clone().add(new THREE.Vector3(-offset, 0, 0));
+  const endR = rightRest.clone().add(new THREE.Vector3(offset, 0, 0));
+
+  cinema.curtainAnim = {
+    start: performance.now(),
+    duration,
+    left,
+    right,
+    fromL: left.position.clone(),
+    fromR: right.position.clone(),
+    toL: open ? endL : leftRest.clone(),
+    toR: open ? endR : rightRest.clone(),
+  };
+}
+
+function updateCurtainAnim(now) {
+  const anim = cinema.curtainAnim;
+  if (!anim) return;
+
+  const t = Math.min(1, (now - anim.start) / anim.duration);
+  const e = easeInOutCubic(t);
+  anim.left.position.lerpVectors(anim.fromL, anim.toL, e);
+  anim.right.position.lerpVectors(anim.fromR, anim.toR, e);
+
+  if (t >= 1) cinema.curtainAnim = null;
+}
+
+function ensureGlowSampler() {
+  if (cinema.sampleCanvas) return;
+  cinema.sampleCanvas = document.createElement("canvas");
+  cinema.sampleCanvas.width = 16;
+  cinema.sampleCanvas.height = 9;
+  cinema.sampleCtx = cinema.sampleCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+}
+
+/** Tint screen spill from trailer color — sells the interior lighting */
+function updateScreenGlowFromVideo(now) {
+  if (now - cinema.lastGlowSample < 180) return;
+  cinema.lastGlowSample = now;
+
+  const tex = scene.userData.screenTex;
+  const video = tex?.userData?.video;
+  if (!video || video.readyState < video.HAVE_CURRENT_DATA || !video.videoWidth) {
+    return;
+  }
+
+  ensureGlowSampler();
+  const { sampleCtx, sampleCanvas } = cinema;
+  sampleCtx.drawImage(video, 0, 0, sampleCanvas.width, sampleCanvas.height);
+  const { data } = sampleCtx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height);
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  const n = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
+  }
+  r /= n;
+  g /= n;
+  b /= n;
+
+  const tint = new THREE.Color(r / 255, g / 255, b / 255);
+  tint.lerp(new THREE.Color(0xfff4e8), 0.32);
+  screenGlow.color.copy(tint);
+  screenSpot.color.copy(tint);
+
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const bookingBoost = mode === "booking" ? 1.22 : 1;
+  const baseGlow = mode === "booking" ? 70 : 55;
+  const baseSpot = mode === "booking" ? 110 : 90;
+  screenGlow.intensity = baseGlow * (0.52 + lum * 0.95) * bookingBoost;
+  screenSpot.intensity = baseSpot * (0.48 + lum * 1.15) * bookingBoost;
 }
 
 function makeScreenMovieTexture() {
@@ -751,6 +1001,9 @@ function applyMaterials(root) {
       if (!mat) continue;
       if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
       const name = (mat.name || "").toLowerCase();
+      const meshName = child.name || "";
+
+      applyCinemaMaterialRules(mat, meshName);
 
       if (name.includes("grass") || name.includes("hedge")) {
         mat.color.setRGB(0.03, 0.08, 0.04);
@@ -794,7 +1047,12 @@ function applyMaterials(root) {
       } else if (name.includes("sign")) {
         mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 1, 3.5);
         if (mat.emissive && mat.emissive.getHex() === 0) mat.emissive.copy(mat.color);
-      } else if (name.includes("screen") && !name.includes("frame")) {
+      } else if (/exit|emergency/.test(name) || /^exit/i.test(meshName)) {
+        mat.emissive = mat.emissive || new THREE.Color();
+        mat.emissive.setRGB(0.15, 0.95, 0.35);
+        mat.emissiveIntensity = 4.2;
+        mat.color.setRGB(0.08, 0.55, 0.22);
+      } else if (name.includes("screen") && !name.includes("frame") && !name.includes("mask")) {
         mat.map = screenTex;
         mat.emissiveMap = screenTex;
         mat.emissive.setHex(0xffffff);
@@ -836,6 +1094,7 @@ function clearSeatHighlight() {
     c.material = c.userData._origMats;
     delete c.userData._origMats;
   });
+  if (cinema.seatAccentLight) cinema.seatAccentLight.intensity = 0;
 }
 
 function highlightSeat(seatName) {
@@ -856,11 +1115,22 @@ function highlightSeat(seatName) {
 
   seat.obj.traverse((c) => {
     if (!c.isMesh) return;
+    const mats = Array.isArray(c.material) ? c.material : [c.material];
+    const matName = mats.map((m) => m?.name || "").join(" ");
+    if (!isSeatHighlightMesh(c.name, matName)) return;
     c.userData._origMats = c.material;
     c.material = Array.isArray(c.material)
       ? c.material.map(() => highlightMat)
       : highlightMat;
   });
+
+  if (cinema.seatAccentLight && mode === "booking") {
+    seat.obj.updateWorldMatrix(true, false);
+    const p = new THREE.Vector3();
+    seat.obj.getWorldPosition(p);
+    cinema.seatAccentLight.position.set(p.x, p.y + 0.18, p.z);
+    cinema.seatAccentLight.intensity = 1.6;
+  }
 }
 
 /**
@@ -1092,8 +1362,7 @@ function setMode(next) {
     autoOrbit = false;
     btnAuto.setAttribute("aria-pressed", "false");
     interiorFill.intensity = 10;
-    screenGlow.intensity = 70;
-    screenSpot.intensity = 110;
+    animateCurtains(true, 1600);
     setBookingSteps("pick");
     previewCard.hidden = true;
     cameraStatus.hidden = true;
@@ -1118,8 +1387,11 @@ function setMode(next) {
     cameraStatus.hidden = true;
     isFlyingToSeat = false;
     interiorFill.intensity = 6;
+    animateCurtains(false, 1200);
     screenGlow.intensity = 55;
     screenSpot.intensity = 90;
+    screenGlow.color.setHex(0xfff4e8);
+    screenSpot.color.setHex(0xffffff);
     camera.fov = 50;
     camera.updateProjectionMatrix();
     applyHomeZoomLimits();
@@ -1132,7 +1404,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid6";
+const ASSET_VERSION = "vid7";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -1143,6 +1415,7 @@ loader.load(
     modelRoot.updateMatrixWorld(true);
 
     collectSeats(modelRoot);
+    collectCinemaLayer(modelRoot);
     updateScreenTarget(modelRoot);
     addPracticalLights(modelRoot);
 
@@ -1234,6 +1507,8 @@ function tick(now) {
   requestAnimationFrame(tick);
   if (bookingLenis) bookingLenis.raf(now);
   if (cameraTween) cameraTween.update(now);
+  updateCurtainAnim(now);
+  if (modelReady) updateScreenGlowFromVideo(now);
   // Video GPU uploads are driven by requestVideoFrameCallback — not every rAF
   if (autoOrbit && mode === "theater" && modelRoot && !cameraTween) {
     _orbitOffset.copy(camera.position).sub(controls.target);
