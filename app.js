@@ -12,7 +12,7 @@ import Lenis from "lenis";
  *   src: "./textures/trailers/hercules/master.m3u8", type: "hls"
  */
 const SCREEN_MEDIA = {
-  src: "./textures/Hercules.mp4",
+  src: "./textures/doom.mp4",
   type: "mp4", // "mp4" | "hls"
 };
 
@@ -2157,7 +2157,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid15";
+const ASSET_VERSION = "vid16";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
