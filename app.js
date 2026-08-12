@@ -42,19 +42,90 @@ const stepPick = document.getElementById("step-pick");
 const stepView = document.getElementById("step-view");
 const stepBook = document.getElementById("step-book");
 
+/**
+ * Quality tiers keep the scene smooth on phones / weak GPUs after deploy.
+ * Override with ?quality=low|medium|high
+ */
+function detectQuality() {
+  const forced = new URLSearchParams(location.search).get("quality");
+  if (forced === "low" || forced === "medium" || forced === "high") return forced;
+
+  const cores = navigator.hardwareConcurrency || 4;
+  const mem = navigator.deviceMemory || 4;
+  const dpr = window.devicePixelRatio || 1;
+  const mobile =
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    window.innerWidth <= 900 ||
+    (navigator.maxTouchPoints > 1 && window.innerWidth <= 1200);
+
+  if (mobile || cores <= 4 || mem <= 4 || dpr >= 2.5) return "low";
+  if (cores <= 6 || mem <= 6) return "medium";
+  return "high";
+}
+
+const QUALITY = detectQuality();
+const QUALITY_OPTS = {
+  low: {
+    dpr: 1,
+    antialias: false,
+    shadows: false,
+    shadowMapSize: 512,
+    lampStep: 3,
+    aisleStep: 4,
+    bollardStep: 4,
+    coveLights: false,
+    exitLights: false,
+    videoMs: 48,
+    glowMs: 420,
+    maxDrawDistance: 120,
+  },
+  medium: {
+    dpr: 1.25,
+    antialias: true,
+    shadows: true,
+    shadowMapSize: 1024,
+    lampStep: 2,
+    aisleStep: 2,
+    bollardStep: 3,
+    coveLights: false,
+    exitLights: true,
+    videoMs: 33,
+    glowMs: 280,
+    maxDrawDistance: 220,
+  },
+  high: {
+    dpr: 1.5,
+    antialias: true,
+    shadows: true,
+    shadowMapSize: 2048,
+    lampStep: 1,
+    aisleStep: 1,
+    bollardStep: 2,
+    coveLights: true,
+    exitLights: true,
+    videoMs: 24,
+    glowMs: 180,
+    maxDrawDistance: 500,
+  },
+}[QUALITY];
+
+console.log(`[Visual Booking] Quality: ${QUALITY}`, QUALITY_OPTS);
+
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: true,
+  antialias: QUALITY_OPTS.antialias,
   powerPreference: "high-performance",
+  alpha: false,
+  stencil: false,
+  depth: true,
 });
-// Cap DPR — high-DPI + VideoTexture uploads is a common stutter source
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY_OPTS.dpr));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.92;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = QUALITY_OPTS.shadows;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 
 // Dark cyan night plate — matches the Visual Booking UI theme
 const NIGHT = 0x050d10;
@@ -65,8 +136,8 @@ scene.fog = new THREE.FogExp2(NIGHT, 0.012);
 const camera = new THREE.PerspectiveCamera(
   50,
   window.innerWidth / window.innerHeight,
-  0.05,
-  500
+  0.1,
+  QUALITY_OPTS.maxDrawDistance
 );
 
 const controls = new OrbitControls(camera, canvas);
@@ -101,19 +172,25 @@ function destroyBookingLenis() {
   bookingLenis = null;
 }
 
-// Very low ambient so lamp washes + screen dominate
-const hemi = new THREE.HemisphereLight(0x1a2238, 0x080604, 0.12);
+// Very low ambient so lamp washes + screen dominate (boosted slightly on low quality)
+const hemi = new THREE.HemisphereLight(
+  0x1a2238,
+  0x080604,
+  QUALITY === "low" ? 0.28 : 0.12
+);
 scene.add(hemi);
 
 const moon = new THREE.DirectionalLight(0x6a7aaa, 0.18);
 moon.position.set(-18, 28, -6);
-moon.castShadow = true;
-moon.shadow.mapSize.set(2048, 2048);
-moon.shadow.camera.left = -40;
-moon.shadow.camera.right = 40;
-moon.shadow.camera.top = 40;
-moon.shadow.camera.bottom = -40;
-moon.shadow.bias = -0.00025;
+moon.castShadow = QUALITY_OPTS.shadows;
+if (QUALITY_OPTS.shadows) {
+  moon.shadow.mapSize.set(QUALITY_OPTS.shadowMapSize, QUALITY_OPTS.shadowMapSize);
+  moon.shadow.camera.left = -40;
+  moon.shadow.camera.right = 40;
+  moon.shadow.camera.top = 40;
+  moon.shadow.camera.bottom = -40;
+  moon.shadow.bias = -0.00025;
+}
 scene.add(moon);
 
 // Soft entrance key (kept low — wall lamps do most exterior work)
@@ -526,6 +603,9 @@ function addPracticalLights(root) {
   practicalLights.length = 0;
 
   const theaterCore = new THREE.Vector3(0, 2.2, -10);
+  let lampIdx = 0;
+  let aisleIdx = 0;
+  let bollardIdx = 0;
 
   root.traverse((child) => {
     if (!child.isMesh) return;
@@ -534,42 +614,47 @@ function addPracticalLights(root) {
     child.getWorldPosition(world);
 
     if (n.startsWith("lamp_head")) {
-      // Local warm bulb at the fixture
-      const bulb = new THREE.PointLight(0xffd7a0, 3.2, 7, 2.2);
-      bulb.position.copy(world);
-      scene.add(bulb);
-      practicalLights.push(bulb);
+      const keep = lampIdx++ % QUALITY_OPTS.lampStep === 0;
+      if (!keep) return;
 
-      // Wall-wash cone aimed at the brick shell (up + slightly inward)
-      const toCore = theaterCore.clone().sub(world);
-      toCore.y = 0;
-      if (toCore.lengthSq() < 0.001) toCore.set(0, 0, 1);
-      toCore.normalize();
+      // On low quality skip expensive SpotLights — emissive materials already glow
+      if (QUALITY !== "low") {
+        const toCore = theaterCore.clone().sub(world);
+        toCore.y = 0;
+        if (toCore.lengthSq() < 0.001) toCore.set(0, 0, 1);
+        toCore.normalize();
 
-      const washTarget = world
-        .clone()
-        .addScaledVector(toCore, 2.8)
-        .add(new THREE.Vector3(0, 3.4, 0));
+        const washTarget = world
+          .clone()
+          .addScaledVector(toCore, 2.8)
+          .add(new THREE.Vector3(0, 3.4, 0));
 
-      const wash = new THREE.SpotLight(
-        0xffb15a,
-        55,
-        18,
-        Math.PI / 5.5,
-        0.42,
-        1.35
-      );
-      wash.position.copy(world);
-      wash.position.y += 0.05;
-      wash.target.position.copy(washTarget);
-      scene.add(wash);
-      scene.add(wash.target);
-      wash.target.updateMatrixWorld();
-      practicalLights.push(wash);
+        const wash = new THREE.SpotLight(
+          0xffb15a,
+          QUALITY === "high" ? 55 : 36,
+          18,
+          Math.PI / 5.5,
+          0.42,
+          1.35
+        );
+        wash.position.copy(world);
+        wash.position.y += 0.05;
+        wash.target.position.copy(washTarget);
+        scene.add(wash);
+        scene.add(wash.target);
+        wash.target.updateMatrixWorld();
+        practicalLights.push(wash);
+      } else {
+        const bulb = new THREE.PointLight(0xffd7a0, 4.5, 9, 2);
+        bulb.position.copy(world);
+        scene.add(bulb);
+        practicalLights.push(bulb);
+      }
       return;
     }
 
     if (n.startsWith("aislelight")) {
+      if (aisleIdx++ % QUALITY_OPTS.aisleStep !== 0) return;
       const aisle = new THREE.PointLight(0xf2f6ff, 2.4, 3.2, 2.4);
       aisle.position.copy(world);
       aisle.position.y += 0.08;
@@ -579,6 +664,7 @@ function addPracticalLights(root) {
     }
 
     if (n.includes("step_light") || n.includes("aisle_led") || n.includes("stage_lip")) {
+      if (QUALITY === "low") return;
       const step = new THREE.PointLight(0xffc890, 0.85, 2.2, 2.2);
       step.position.copy(world);
       step.position.y += 0.04;
@@ -588,6 +674,7 @@ function addPracticalLights(root) {
     }
 
     if (n.startsWith("roof_cove") || n.startsWith("cove_")) {
+      if (!QUALITY_OPTS.coveLights) return;
       const cove = new THREE.PointLight(0xfff8f0, 2.8, 5, 2);
       cove.position.copy(world);
       scene.add(cove);
@@ -595,10 +682,9 @@ function addPracticalLights(root) {
       return;
     }
 
-    // Every other bollard — soft ground pools without flooding the scene
+    // Every Nth bollard — soft ground pools without flooding the scene
     if (n.startsWith("bollard")) {
-      const idx = Number((child.name.match(/\.(\d+)$/) || [])[1] || 0);
-      if (idx % 2 === 1) return;
+      if (bollardIdx++ % QUALITY_OPTS.bollardStep !== 0) return;
       const pool = new THREE.PointLight(0xffc078, 1.1, 4.5, 2.5);
       pool.position.copy(world);
       pool.position.y += 0.55;
@@ -607,7 +693,9 @@ function addPracticalLights(root) {
     }
   });
 
-  console.log(`[3D Theater] Practical lights: ${practicalLights.length}`);
+  console.log(
+    `[Visual Booking] Practical lights: ${practicalLights.length} (${QUALITY})`
+  );
 }
 
 function collectCinemaLayer(root) {
@@ -1029,8 +1117,8 @@ function buildProceduralCinemaLayer(root) {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
     m.scale.set(sx, sy, sz);
-    m.castShadow = true;
-    m.receiveShadow = true;
+    m.castShadow = QUALITY_OPTS.shadows;
+    m.receiveShadow = QUALITY_OPTS.shadows;
     if (name) m.name = name;
     group.add(m);
     return m;
@@ -1244,6 +1332,7 @@ function buildProceduralCinemaLayer(root) {
 }
 
 function setupCoveLights(root) {
+  if (!QUALITY_OPTS.coveLights) return;
   root.updateMatrixWorld(true);
   root.traverse((child) => {
     if (!child.isMesh) return;
@@ -1265,6 +1354,7 @@ function setupExitLights(root) {
     light.dispose?.();
   }
   cinema.exitLights.length = 0;
+  if (!QUALITY_OPTS.exitLights) return;
 
   root.updateMatrixWorld(true);
   root.traverse((child) => {
@@ -1326,7 +1416,7 @@ function ensureGlowSampler() {
 
 /** Tint screen spill from trailer color — sells the interior lighting */
 function updateScreenGlowFromVideo(now) {
-  if (now - cinema.lastGlowSample < 180) return;
+  if (now - cinema.lastGlowSample < QUALITY_OPTS.glowMs) return;
   cinema.lastGlowSample = now;
 
   const tex = scene.userData.screenTex;
@@ -1400,7 +1490,7 @@ function makeScreenMovieTexture() {
   tex.update = function throttledVideoUpdate() {
     if (video.readyState < video.HAVE_CURRENT_DATA || video.paused) return;
     const now = performance.now();
-    if (now - lastUpload < 16) return;
+    if (now - lastUpload < QUALITY_OPTS.videoMs) return;
     lastUpload = now;
     baseUpdate();
   };
@@ -1639,8 +1729,16 @@ function applyMaterials(root) {
       return;
     }
     if (!child.isMesh) return;
-    child.castShadow = true;
-    child.receiveShadow = true;
+    // Shadows only on large structure — seats/props skip casting on low/med for FPS
+    const n = (child.name || "").toLowerCase();
+    const major =
+      n.startsWith("wall_") ||
+      n.startsWith("floor_") ||
+      n.startsWith("stage") ||
+      n.startsWith("roof_") ||
+      n.startsWith("screen_");
+    child.castShadow = QUALITY_OPTS.shadows && (QUALITY === "high" || major);
+    child.receiveShadow = QUALITY_OPTS.shadows;
     if (!child.material) return;
 
     const mats = Array.isArray(child.material) ? child.material : [child.material];
@@ -2059,7 +2157,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid14";
+const ASSET_VERSION = "vid15";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2136,6 +2234,7 @@ let resizeRaf = 0;
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY_OPTS.dpr));
   renderer.setSize(window.innerWidth, window.innerHeight);
   bookingLenis?.resize();
 
@@ -2157,6 +2256,7 @@ const _orbitPos = new THREE.Vector3();
 
 function tick(now) {
   requestAnimationFrame(tick);
+  if (document.hidden) return;
   if (bookingLenis) bookingLenis.raf(now);
   if (cameraTween) cameraTween.update(now);
   updateCurtainAnim(now);
