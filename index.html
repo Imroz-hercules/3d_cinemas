@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>3D Theater</title>
+    <title>Visual Booking</title>
     <meta
       name="description"
-      content="Explore 3D Theater and preview your seat view before booking tickets."
+      content="Explore Visual Booking and preview your seat view before booking tickets."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=vid11" />
+    <link rel="stylesheet" href="styles.css?v=vid12" />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.css"
@@ -27,9 +27,8 @@
     </div>
 
     <header class="site-header">
-      <p class="brand">3D Theater</p>
+      <p class="brand">Visual Booking</p>
       <nav class="nav" id="explore-nav">
-        <button type="button" id="btn-reset" class="nav-btn">Reset view</button>
         <button type="button" id="btn-auto" class="nav-btn" aria-pressed="true">
           Auto orbit
         </button>
@@ -43,10 +42,7 @@
         exact seat.
       </p>
       <div class="cta-row">
-        <button type="button" id="btn-enter" class="cta primary">
-          Enter the house
-        </button>
-        <button type="button" id="btn-book-cta" class="cta ghost">
+        <button type="button" id="btn-book-cta" class="cta primary">
           Book tickets
         </button>
       </div>
@@ -147,7 +143,7 @@
 
     <div id="loader" class="loader" role="status" aria-live="polite">
       <div class="loader-inner">
-        <p class="loader-brand">3D Theater</p>
+        <p class="loader-brand">Visual Booking</p>
         <div class="progress-track">
           <div id="progress-bar" class="progress-bar"></div>
         </div>
@@ -166,6 +162,6 @@
         }
       }
     </script>
-    <script type="module" src="app.js?v=vid11"></script>
+    <script type="module" src="app.js?v=vid12"></script>
   </body>
 </html>

@@ -20,9 +20,7 @@ const canvas = document.getElementById("theater-canvas");
 const loaderEl = document.getElementById("loader");
 const progressBar = document.getElementById("progress-bar");
 const loaderText = document.getElementById("loader-text");
-const btnReset = document.getElementById("btn-reset");
 const btnAuto = document.getElementById("btn-auto");
-const btnEnter = document.getElementById("btn-enter");
 const btnBookCta = document.getElementById("btn-book-cta");
 const tabTheater = document.getElementById("tab-theater");
 const tabBooking = document.getElementById("tab-booking");
@@ -2062,7 +2060,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid11";
+const ASSET_VERSION = "vid12";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2112,23 +2110,10 @@ btnBookCta.addEventListener("click", () => {
   setMode("booking");
 });
 
-btnReset.addEventListener("click", () => {
-  if (mode === "booking") return;
-  applyHomeZoomLimits();
-  animateCameraTo(defaultCam.clone(), defaultTarget.clone(), 1100, () => {
-    applyHomeZoomLimits();
-  });
-});
-
 btnAuto.addEventListener("click", () => {
   if (mode === "booking") return;
   autoOrbit = !autoOrbit;
   btnAuto.setAttribute("aria-pressed", String(autoOrbit));
-});
-
-btnEnter.addEventListener("click", () => {
-  ensureScreenVideoPlaying();
-  animateCameraTo(enterCam.clone(), enterTarget.clone(), 1800);
 });
 
 btnConfirm.addEventListener("click", () => {
