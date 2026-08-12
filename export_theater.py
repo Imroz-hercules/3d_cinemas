@@ -38,6 +38,10 @@ for obj in sorted(bpy.data.objects, key=lambda o: o.name):
         mats = {s.material.name for s in obj.material_slots if s.material}
         print(f"  {obj.name}  →  {', '.join(sorted(mats)) or '(no mat)'}")
 
+print("\nTip: name roof meshes Roof_Back, Roof_Left, Roof_Right, Roof_Front_L, Roof_Front_R")
+print("     and cove strips Cove_Back, Cove_Left, Cove_Right, Cove_Front_L, Cove_Front_R")
+print("     with Mat_Roof (black) and Mat_Cove (white emissive) for web auto-tuning.")
+
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.export_scene.gltf(
     filepath=str(OUT_GLB),

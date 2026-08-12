@@ -317,13 +317,8 @@ function snapCameraTo(pos, target) {
 }
 
 function isRoofObject(obj) {
-  const name = (obj.name || "").toLowerCase();
-  // Hide full roof for orbit view, but keep interior soffit/cove visible
-  if (name.includes("soffit") || name.includes("cove")) return false;
-  if (name.includes("roof")) return true;
-  if (!obj.isMesh || !obj.material) return false;
-  const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-  return mats.some((m) => m && /roof/i.test(m.name || "") && !/soffit|cove/i.test(m.name || ""));
+  // Keep Blender roof visible — U-shaped lid + cove rim (do not hide for orbit view)
+  return false;
 }
 
 function meshMaterialKey(meshName, matName) {
@@ -383,9 +378,23 @@ function applyCinemaMaterialRules(mat, meshName) {
     mat.metalness = 0;
     return;
   }
-  if (/soffit|cove|mat_soffit/.test(key)) {
+  if (/soffit|mat_soffit/.test(key)) {
     mat.color.setRGB(0.02, 0.02, 0.025);
     mat.roughness = 0.9;
+    return;
+  }
+  if (/roof|mat_roof|roof_lid|roof_top/.test(key) && !/cove/.test(key)) {
+    mat.color.setRGB(0.04, 0.04, 0.05);
+    mat.roughness = 0.92;
+    mat.metalness = 0.02;
+    return;
+  }
+  if (/cove|mat_cove|roof_cove/.test(key)) {
+    mat.emissive = mat.emissive || new THREE.Color();
+    mat.emissive.setRGB(1, 1, 1);
+    mat.emissiveIntensity = 5.5;
+    mat.color.setRGB(0.95, 0.95, 0.98);
+    mat.roughness = 0.35;
     return;
   }
   if (/stage_lip|lip/.test(key)) {
@@ -566,6 +575,14 @@ function addPracticalLights(root) {
       return;
     }
 
+    if (n.startsWith("roof_cove") || n.startsWith("cove_")) {
+      const cove = new THREE.PointLight(0xfff8f0, 2.8, 5, 2);
+      cove.position.copy(world);
+      scene.add(cove);
+      practicalLights.push(cove);
+      return;
+    }
+
     // Every other bollard — soft ground pools without flooding the scene
     if (n.startsWith("bollard")) {
       const idx = Number((child.name.match(/\.(\d+)$/) || [])[1] || 0);
@@ -624,6 +641,112 @@ function hasCinemaProp(root, pattern) {
 }
 
 /**
+ * Blender-style roof: black U-frame lid with open center + white cove rim on inner edge.
+ */
+function buildProceduralRoof(root, center, size, addMesh) {
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: 0x060608,
+    roughness: 0.93,
+    metalness: 0.02,
+  });
+  const coveMat = new THREE.MeshStandardMaterial({
+    color: 0xf8f8fc,
+    emissive: 0xffffff,
+    emissiveIntensity: 5.5,
+    roughness: 0.35,
+  });
+
+  const roofY = center.y + size.y * 0.47;
+  const thick = 0.2;
+  const frame = Math.max(1.05, size.x * 0.11);
+  const outerW = size.x * 0.9;
+  const outerD = size.z * 0.86;
+  const frontZ = center.z - outerD / 2;
+  const backZ = center.z + outerD / 2;
+  const halfW = outerW / 2;
+
+  // Back roof bar (full width)
+  addMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    roofMat,
+    center.x,
+    roofY,
+    backZ - frame / 2,
+    outerW,
+    thick,
+    frame,
+    "Roof_Back"
+  );
+
+  // Side arms (left / right)
+  const sideLen = outerD - frame * 1.6;
+  addMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    roofMat,
+    center.x - halfW + frame / 2,
+    roofY,
+    center.z + frame * 0.15,
+    frame,
+    thick,
+    sideLen,
+    "Roof_Left"
+  );
+  addMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    roofMat,
+    center.x + halfW - frame / 2,
+    roofY,
+    center.z + frame * 0.15,
+    frame,
+    thick,
+    sideLen,
+    "Roof_Right"
+  );
+
+  // Front corner lips — U opens toward screen / front
+  const frontLipW = outerW * 0.34;
+  addMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    roofMat,
+    center.x - halfW + frontLipW / 2,
+    roofY,
+    frontZ + frame / 2,
+    frontLipW,
+    thick,
+    frame,
+    "Roof_Front_L"
+  );
+  addMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    roofMat,
+    center.x + halfW - frontLipW / 2,
+    roofY,
+    frontZ + frame / 2,
+    frontLipW,
+    thick,
+    frame,
+    "Roof_Front_R"
+  );
+
+  // White cove strip on inner edge of roof (faces into auditorium)
+  const coveY = roofY - thick / 2 - 0.05;
+  const coveH = 0.09;
+  const coveInset = frame * 0.72;
+
+  const coveSpecs = [
+    ["Cove_Back", center.x, backZ - coveInset, outerW - frame * 2.2, coveH, 0.07],
+    ["Cove_Left", center.x - halfW + coveInset, center.z + frame * 0.12, 0.07, coveH, sideLen - frame],
+    ["Cove_Right", center.x + halfW - coveInset, center.z + frame * 0.12, 0.07, coveH, sideLen - frame],
+    ["Cove_Front_L", center.x - halfW + frontLipW * 0.55, frontZ + coveInset, frontLipW - frame, coveH, 0.07],
+    ["Cove_Front_R", center.x + halfW - frontLipW * 0.55, frontZ + coveInset, frontLipW - frame, coveH, 0.07],
+  ];
+
+  for (const [name, x, z, sx, sy, sz] of coveSpecs) {
+    addMesh(new THREE.BoxGeometry(1, 1, 1), coveMat, x, coveY, z, sx, sy, sz, name);
+  }
+}
+
+/**
  * When 3d_theater.glb is stale (not re-exported from Blender), add cinema props in code
  * so the site still shows speakers, handrails, EXIT signs, masking, etc.
  */
@@ -639,12 +762,12 @@ function buildProceduralCinemaLayer(root) {
   }
 
   const needs = {
+    roof: !hasCinemaProp(root, /^roof_|roof_lid|roof_top|roof_frame/i),
     speakers: !hasCinemaProp(root, /speaker|subwoofer|lcr/i),
     handrails: !hasCinemaProp(root, /handrail|rail_/i),
     exits: !hasCinemaProp(root, /^exit/i),
     carpet: !hasCinemaProp(root, /carpet|runner/i),
     mask: !hasCinemaProp(root, /screen_mask|mask/i),
-    soffit: !hasCinemaProp(root, /soffit|cove/i),
   };
 
   if (!Object.values(needs).some(Boolean)) {
@@ -700,11 +823,6 @@ function buildProceduralCinemaLayer(root) {
   const panelMat = new THREE.MeshStandardMaterial({
     color: 0xd4d0cc,
     roughness: 0.94,
-    metalness: 0,
-  });
-  const soffitMat = new THREE.MeshStandardMaterial({
-    color: 0x050508,
-    roughness: 0.9,
     metalness: 0,
   });
 
@@ -915,22 +1033,31 @@ function buildProceduralCinemaLayer(root) {
     }
   }
 
-  // --- Ceiling soffit ring ---
-  if (needs.soffit) {
-    addMesh(
-      new THREE.BoxGeometry(size.x * 0.82, 0.12, size.z * 0.78),
-      soffitMat,
-      center.x,
-      center.y + size.y * 0.92,
-      center.z - size.z * 0.02,
-      1, 1, 1,
-      "Ceiling_Soffit"
-    );
+  // --- Blender-style U roof + cove rim ---
+  if (needs.roof) {
+    buildProceduralRoof(root, center, size, addMesh);
   }
 
   root.add(group);
   cinema.proceduralGroup = group;
   setupExitLights(root);
+  if (needs.roof) setupCoveLights(root);
+}
+
+function setupCoveLights(root) {
+  root.updateMatrixWorld(true);
+  root.traverse((child) => {
+    if (!child.isMesh) return;
+    const n = (child.name || "").toLowerCase();
+    if (!n.startsWith("cove_") && !n.startsWith("roof_cove")) return;
+
+    const world = new THREE.Vector3();
+    child.getWorldPosition(world);
+    const cove = new THREE.PointLight(0xfff8f0, 2.4, 4.5, 2);
+    cove.position.copy(world);
+    scene.add(cove);
+    practicalLights.push(cove);
+  });
 }
 
 function setupExitLights(root) {
@@ -1368,6 +1495,14 @@ function applyMaterials(root) {
       } else if (name.includes("sign")) {
         mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 1, 3.5);
         if (mat.emissive && mat.emissive.getHex() === 0) mat.emissive.copy(mat.color);
+      } else if (/^mat_roof|roof/.test(name) && !/cove/.test(name)) {
+        mat.color.setRGB(0.04, 0.04, 0.05);
+        mat.roughness = 0.92;
+      } else if (/cove|mat_cove/.test(name) || /^cove_/i.test(meshName)) {
+        mat.emissive = mat.emissive || new THREE.Color();
+        mat.emissive.setRGB(1, 1, 1);
+        mat.emissiveIntensity = 5.5;
+        mat.color.setRGB(0.95, 0.95, 0.98);
       } else if (/exit|emergency/.test(name) || /^exit/i.test(meshName)) {
         mat.emissive = mat.emissive || new THREE.Color();
         mat.emissive.setRGB(0.15, 0.95, 0.35);
@@ -1725,7 +1860,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid8";
+const ASSET_VERSION = "vid9";
 const loader = new GLTFLoader();
 loader.load(
   `./3d_theater.glb?v=${ASSET_VERSION}`,
@@ -1740,6 +1875,7 @@ loader.load(
     buildProceduralCinemaLayer(modelRoot);
     updateScreenTarget(modelRoot);
     addPracticalLights(modelRoot);
+    setupCoveLights(modelRoot);
 
     const fitted = fitCameraToObject(modelRoot);
     aimFocusLights(fitted.center, fitted.size);
