@@ -506,7 +506,7 @@ function applyHomeZoomLimits() {
 function getTheaterFocusBox(object) {
   const box = new THREE.Box3();
   let found = false;
-  const focusNames = /^(Wall_Shell|Wall_Front|Screen_|Stage|Floor_|Seat_|Soffit_|Roof_)/i;
+  const focusNames = /^(Wall_Shell|Wall_Front|Screen_|Stage|Floor_|Seat_|Soffit_|Roof)/i;
 
   object.traverse((child) => {
     if (!child.isMesh) return;
@@ -1080,12 +1080,12 @@ function buildProceduralCinemaLayer(root) {
   }
 
   const needs = {
-    // Skip procedural roof when Blender Soffit_Ring / Roof_* is in the GLB
-    roof: !hasCinemaProp(root, /soffit_ring|^soffit_|^roof_|roof_lid|roof_top|roof_frame/i),
+    // Skip procedural props when Blender meshes exist in the new GLB
+    roof: !hasCinemaProp(root, /soffit_ring|soffit_cove|^soffit_|^roof|mat_roof/i),
     speakers: !hasCinemaProp(root, /speaker|subwoofer|lcr/i),
-    handrails: !hasCinemaProp(root, /handrail|rail_/i),
+    handrails: !hasCinemaProp(root, /handrail|rail_bar|rail_post|^rail_/i),
     exits: !hasCinemaProp(root, /^exit/i),
-    carpet: !hasCinemaProp(root, /carpet|runner/i),
+    carpet: !hasCinemaProp(root, /carpet|runner|aisle_carpet/i),
     mask: !hasCinemaProp(root, /screen_mask|mask/i),
   };
 
@@ -1767,7 +1767,8 @@ function applyMaterials(root) {
       n.startsWith("wall_") ||
       n.startsWith("floor_") ||
       n.startsWith("stage") ||
-      n.startsWith("roof_") ||
+      n.startsWith("roof") ||
+      n.startsWith("soffit") ||
       n.startsWith("screen_");
     child.castShadow = QUALITY_OPTS.shadows && (QUALITY === "high" || major);
     child.receiveShadow = QUALITY_OPTS.shadows;
@@ -1790,11 +1791,10 @@ function applyMaterials(root) {
         mat.roughness = 0.95;
       } else if (name.includes("road") && !name.includes("line")) {
         mat.color.setRGB(0.03, 0.03, 0.035);
-      } else if (name.includes("floor")) {
+      } else if (name.includes("floor") && !name.includes("stage")) {
         mat.color.setRGB(0.06, 0.06, 0.07);
         mat.roughness = 0.92;
-      } else if (name.includes("brick") || name.includes("wall")) {
-        // Keep brick readable under warm washes
+      } else if (name.includes("brick") || name === "mat_wall") {
         mat.roughness = Math.min(mat.roughness ?? 0.9, 0.88);
         if (name.includes("brick_out") || name.includes("brick_front")) {
           mat.color.multiplyScalar(0.92);
@@ -1805,6 +1805,22 @@ function applyMaterials(root) {
       } else if (name.includes("curtain")) {
         mat.color.setRGB(0.25, 0.04, 0.05);
         mat.roughness = 0.9;
+      } else if (name.includes("carpet")) {
+        mat.color.setRGB(0.12, 0.08, 0.07);
+        mat.roughness = 0.98;
+      } else if (name.includes("acoustic")) {
+        mat.color.setRGB(0.82, 0.8, 0.78);
+        mat.roughness = 0.94;
+      } else if (name.includes("metal") || name.includes("rail") || /^rail_/i.test(meshName)) {
+        mat.color.setRGB(0.55, 0.56, 0.58);
+        mat.roughness = 0.32;
+        mat.metalness = 0.88;
+      } else if (name.includes("black") || name.includes("beam") || name.includes("bin")) {
+        mat.color.setRGB(0.04, 0.04, 0.05);
+        mat.roughness = 0.9;
+      } else if (name.includes("person")) {
+        mat.color.setRGB(0.08, 0.08, 0.09);
+        mat.roughness = 0.85;
       }
 
       if (name.includes("lamp_glow")) {
@@ -1816,35 +1832,49 @@ function applyMaterials(root) {
         mat.emissive = mat.emissive || new THREE.Color();
         mat.emissive.setHex(0xffb45a);
         mat.emissiveIntensity = 3.2;
-      } else if (name.includes("aisle")) {
+      } else if (name.includes("aisle_light") || name === "mat_aisle_light") {
         mat.emissive = mat.emissive || new THREE.Color();
         mat.emissive.setHex(0xf0f4ff);
         mat.emissiveIntensity = 8;
         mat.color.setHex(0xffffff);
-      } else if (name.includes("sign")) {
+      } else if (name.includes("step_led") || /^step_led/i.test(meshName)) {
+        mat.emissive = mat.emissive || new THREE.Color();
+        mat.emissive.setHex(0xffc890);
+        mat.emissiveIntensity = 3.5;
+        mat.color.setHex(0xffe0b0);
+      } else if (name.includes("sign") && !name.includes("exit")) {
         mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 1, 3.5);
         if (mat.emissive && mat.emissive.getHex() === 0) mat.emissive.copy(mat.color);
       } else if (
         /^mat_roof|mat_soffit|roof/.test(name) ||
         /^soffit/i.test(meshName) ||
-        /^roof_/i.test(meshName)
+        /^roof/i.test(meshName)
       ) {
-        if (!/cove/.test(name) && !/^cove_/i.test(meshName)) {
+        if (!/cove/.test(name) && !/^cove_/i.test(meshName) && !/soffit_cove/i.test(meshName)) {
           mat.color.setRGB(0.04, 0.04, 0.05);
           mat.roughness = 0.92;
           mat.metalness = 0.02;
         }
-      } else if (/cove|mat_cove/.test(name) || /^cove_/i.test(meshName)) {
+      } else if (
+        /cove|mat_cove/.test(name) ||
+        /^cove_/i.test(meshName) ||
+        /soffit_cove/i.test(meshName)
+      ) {
         mat.emissive = mat.emissive || new THREE.Color();
-        mat.emissive.setRGB(1, 1, 1);
-        mat.emissiveIntensity = 5.5;
+        mat.emissive.setRGB(0.9, 0.95, 1);
+        mat.emissiveIntensity = 4.5;
         mat.color.setRGB(0.95, 0.95, 0.98);
       } else if (/exit|emergency/.test(name) || /^exit/i.test(meshName)) {
         mat.emissive = mat.emissive || new THREE.Color();
         mat.emissive.setRGB(0.15, 0.95, 0.35);
         mat.emissiveIntensity = 4.2;
         mat.color.setRGB(0.08, 0.55, 0.22);
-      } else if (name.includes("screen") && !name.includes("frame") && !name.includes("mask")) {
+      } else if (
+        (name.includes("screen") || /^screen_surface/i.test(meshName)) &&
+        !name.includes("frame") &&
+        !name.includes("mask") &&
+        !/mask/i.test(meshName)
+      ) {
         mat.map = screenTex;
         mat.emissiveMap = screenTex;
         mat.emissive.setHex(0xffffff);
@@ -1852,9 +1882,10 @@ function applyMaterials(root) {
         mat.color.setHex(0xffffff);
         mat.roughness = 0.45;
         mat.metalness = 0;
-      } else if (name.includes("screen_frame")) {
+      } else if (name.includes("screen_frame") || /screen_mask|mask/i.test(name) || /screen_mask/i.test(meshName)) {
         mat.color.setRGB(0.02, 0.02, 0.02);
         mat.roughness = 0.7;
+        mat.emissiveIntensity = 0;
       }
       mat.envMapIntensity = 0;
       mat.needsUpdate = true;
@@ -2196,10 +2227,10 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid18";
+const ASSET_VERSION = "vid19";
 const loader = new GLTFLoader();
 loader.load(
-  `./3d_theater.glb?v=${ASSET_VERSION}`,
+  `./textures/3d_theater.glb?v=${ASSET_VERSION}`,
   (gltf) => {
     modelRoot = gltf.scene;
     applyMaterials(modelRoot);

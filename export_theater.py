@@ -17,7 +17,8 @@ BLEND = Path(bpy.data.filepath)
 if not BLEND.name:
     raise SystemExit("Save the .blend file first, then run this script again.")
 
-OUT_GLB = BLEND.with_suffix(".glb")
+OUT_GLB = BLEND.parent / "textures" / "3d_theater.glb"
+OUT_GLB.parent.mkdir(exist_ok=True)
 
 # Soft emissive strengths for web (realtime)
 SOFT_EMISSION = {
