@@ -123,15 +123,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY_OPTS.dpr))
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.92;
+renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = QUALITY_OPTS.shadows;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 
-// Dark cyan night plate — matches the Visual Booking UI theme
-const NIGHT = 0x050d10;
+// Light cyan morning plate — bright day look
+const DAY = 0xf4fbfc;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(NIGHT);
-scene.fog = new THREE.FogExp2(NIGHT, 0.012);
+scene.background = new THREE.Color(DAY);
+scene.fog = new THREE.FogExp2(0xe8f6f8, 0.006);
 
 const camera = new THREE.PerspectiveCamera(
   50,
@@ -172,16 +172,16 @@ function destroyBookingLenis() {
   bookingLenis = null;
 }
 
-// Very low ambient so lamp washes + screen dominate (boosted slightly on low quality)
+// Soft daylight fill
 const hemi = new THREE.HemisphereLight(
-  0x1a2238,
-  0x080604,
-  QUALITY === "low" ? 0.28 : 0.12
+  0xdff7fa,
+  0xc5d5c8,
+  QUALITY === "low" ? 0.85 : 0.7
 );
 scene.add(hemi);
 
-const moon = new THREE.DirectionalLight(0x6a7aaa, 0.18);
-moon.position.set(-18, 28, -6);
+const moon = new THREE.DirectionalLight(0xfff6e8, 1.35);
+moon.position.set(14, 32, 10);
 moon.castShadow = QUALITY_OPTS.shadows;
 if (QUALITY_OPTS.shadows) {
   moon.shadow.mapSize.set(QUALITY_OPTS.shadowMapSize, QUALITY_OPTS.shadowMapSize);
@@ -193,28 +193,28 @@ if (QUALITY_OPTS.shadows) {
 }
 scene.add(moon);
 
-// Soft entrance key (kept low — wall lamps do most exterior work)
-const frontSpot = new THREE.SpotLight(0xffc078, 12, 55, Math.PI / 5, 0.55, 1.4);
+// Soft daylight keys (morning look — lamps stay subtle)
+const frontSpot = new THREE.SpotLight(0xfff2d8, 18, 55, Math.PI / 4.5, 0.55, 1.2);
 scene.add(frontSpot);
 scene.add(frontSpot.target);
 
-const topFocus = new THREE.SpotLight(0xc8d4ef, 4, 50, Math.PI / 3.5, 0.7, 1.3);
+const topFocus = new THREE.SpotLight(0xe8f4ff, 10, 50, Math.PI / 3.2, 0.65, 1.2);
 scene.add(topFocus);
 scene.add(topFocus.target);
 
-const entranceGlow = new THREE.PointLight(0xff9a3c, 8, 28, 2);
+const entranceGlow = new THREE.PointLight(0xffe0b0, 4, 28, 2);
 scene.add(entranceGlow);
 
-// Screen spill into the house (primary interior light)
-const screenGlow = new THREE.PointLight(0xfff4e8, 55, 32, 1.35);
+// Screen spill into the house
+const screenGlow = new THREE.PointLight(0xfff4e8, 35, 32, 1.35);
 scene.add(screenGlow);
 
-const screenSpot = new THREE.SpotLight(0xffffff, 90, 42, Math.PI / 2.6, 0.55, 1.15);
+const screenSpot = new THREE.SpotLight(0xffffff, 55, 42, Math.PI / 2.6, 0.55, 1.15);
 scene.add(screenSpot);
 scene.add(screenSpot.target);
 
-// Mild warm fill over seats (boosted slightly in booking mode)
-const interiorFill = new THREE.PointLight(0xffd2a8, 6, 28, 1.8);
+// Mild cool fill over seats
+const interiorFill = new THREE.PointLight(0xd8f0f2, 8, 28, 1.8);
 scene.add(interiorFill);
 
 /** @type {THREE.Light[]} */
@@ -391,8 +391,23 @@ function snapCameraTo(pos, target) {
 }
 
 function isRoofObject(obj) {
-  // Keep Blender roof visible — U-shaped lid + cove rim (do not hide for orbit view)
-  return false;
+  // Hide rooftop / soffit so the house stays open from the orbit view
+  const name = (obj.name || "").toLowerCase();
+  if (
+    name === "soffit_ring" ||
+    name === "soffit_cove" ||
+    name === "roof" ||
+    name.startsWith("soffit_") ||
+    name.startsWith("roof_") ||
+    name.startsWith("roof_shell") ||
+    name.startsWith("cove_shell") ||
+    name === "soffit_anchor"
+  ) {
+    return true;
+  }
+  if (!obj.isMesh || !obj.material) return false;
+  const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+  return mats.some((m) => m && /mat_roof|mat_soffit/i.test(m.name || ""));
 }
 
 function meshMaterialKey(meshName, matName) {
@@ -631,8 +646,8 @@ function addPracticalLights(root) {
           .add(new THREE.Vector3(0, 3.4, 0));
 
         const wash = new THREE.SpotLight(
-          0xffb15a,
-          QUALITY === "high" ? 55 : 36,
+          0xffd8a8,
+          QUALITY === "high" ? 22 : 14,
           18,
           Math.PI / 5.5,
           0.42,
@@ -646,7 +661,7 @@ function addPracticalLights(root) {
         wash.target.updateMatrixWorld();
         practicalLights.push(wash);
       } else {
-        const bulb = new THREE.PointLight(0xffd7a0, 4.5, 9, 2);
+        const bulb = new THREE.PointLight(0xffe6c4, 2.2, 9, 2);
         bulb.position.copy(world);
         scene.add(bulb);
         practicalLights.push(bulb);
@@ -674,19 +689,15 @@ function addPracticalLights(root) {
       return;
     }
 
+    // Rooftop / cove removed for open morning view — skip cove practicals
     if (n.startsWith("roof_cove") || n.startsWith("cove_")) {
-      if (!QUALITY_OPTS.coveLights) return;
-      const cove = new THREE.PointLight(0xfff8f0, 2.8, 5, 2);
-      cove.position.copy(world);
-      scene.add(cove);
-      practicalLights.push(cove);
       return;
     }
 
     // Every Nth bollard — soft ground pools without flooding the scene
     if (n.startsWith("bollard")) {
       if (bollardIdx++ % QUALITY_OPTS.bollardStep !== 0) return;
-      const pool = new THREE.PointLight(0xffc078, 1.1, 4.5, 2.5);
+      const pool = new THREE.PointLight(0xffd8a0, 0.55, 4.5, 2.5);
       pool.position.copy(world);
       pool.position.y += 0.55;
       scene.add(pool);
@@ -1080,8 +1091,8 @@ function buildProceduralCinemaLayer(root) {
   }
 
   const needs = {
-    // Skip procedural props when Blender meshes exist in the new GLB
-    roof: !hasCinemaProp(root, /soffit_ring|soffit_cove|^soffit_|^roof|mat_roof/i),
+    // Skip fake rooftop — house stays open from above
+    roof: false,
     speakers: !hasCinemaProp(root, /speaker|subwoofer|lcr/i),
     handrails: !hasCinemaProp(root, /handrail|rail_bar|rail_post|^rail_/i),
     exits: !hasCinemaProp(root, /^exit/i),
@@ -1481,9 +1492,9 @@ function updateScreenGlowFromVideo(now) {
   screenSpot.color.copy(tint);
 
   const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  const bookingBoost = mode === "booking" ? 1.22 : 1;
-  const baseGlow = mode === "booking" ? 70 : 55;
-  const baseSpot = mode === "booking" ? 110 : 90;
+  const bookingBoost = mode === "booking" ? 1.15 : 1;
+  const baseGlow = mode === "booking" ? 42 : 35;
+  const baseSpot = mode === "booking" ? 70 : 55;
   screenGlow.intensity = baseGlow * (0.52 + lum * 0.95) * bookingBoost;
   screenSpot.intensity = baseSpot * (0.48 + lum * 1.15) * bookingBoost;
 }
@@ -2184,7 +2195,7 @@ function setMode(next) {
   if (booking) {
     autoOrbit = false;
     btnAuto.setAttribute("aria-pressed", "false");
-    interiorFill.intensity = 10;
+    interiorFill.intensity = 12;
     animateCurtains(true, 1600);
     setBookingSteps("pick");
     previewCard.hidden = true;
@@ -2209,10 +2220,10 @@ function setMode(next) {
     viewToast.hidden = true;
     cameraStatus.hidden = true;
     isFlyingToSeat = false;
-    interiorFill.intensity = 6;
+    interiorFill.intensity = 8;
     animateCurtains(false, 1200);
-    screenGlow.intensity = 55;
-    screenSpot.intensity = 90;
+    screenGlow.intensity = 35;
+    screenSpot.intensity = 55;
     screenGlow.color.setHex(0xfff4e8);
     screenSpot.color.setHex(0xffffff);
     camera.fov = 50;
@@ -2227,7 +2238,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid19";
+const ASSET_VERSION = "vid21";
 const loader = new GLTFLoader();
 loader.load(
   `./textures/3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2242,7 +2253,7 @@ loader.load(
     buildProceduralCinemaLayer(modelRoot);
     updateScreenTarget(modelRoot);
     addPracticalLights(modelRoot);
-    setupCoveLights(modelRoot);
+    // Cove lights skipped — rooftop / soffit hidden for open morning view
 
     const fitted = fitCameraToObject(modelRoot);
     aimFocusLights(fitted.center, fitted.size);

@@ -1,12 +1,12 @@
 :root {
-  --ink: #050d10;
-  --cream: #e2f4f6;
-  --amber: #2ec4c6;
-  --amber-dim: #1a9a9e;
-  --muted: rgba(226, 244, 246, 0.62);
-  --line: rgba(226, 244, 246, 0.18);
-  --panel: rgba(6, 18, 22, 0.94);
-  --panel-soft: rgba(10, 28, 34, 0.78);
+  --ink: #f4fbfc;
+  --cream: #0b2f36;
+  --amber: #1aa8ab;
+  --amber-dim: #14888b;
+  --muted: rgba(11, 47, 54, 0.62);
+  --line: rgba(11, 47, 54, 0.14);
+  --panel: rgba(255, 255, 255, 0.92);
+  --panel-soft: rgba(232, 248, 250, 0.9);
   --font-display: "Bebas Neue", Impact, sans-serif;
   --font-body: "Instrument Sans", Georgia, sans-serif;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -50,8 +50,8 @@ button {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 75% 65% at 50% 42%, transparent 35%, rgba(12, 10, 8, 0.55) 100%),
-    linear-gradient(180deg, rgba(12, 10, 8, 0.35) 0%, transparent 22%, transparent 68%, rgba(12, 10, 8, 0.75) 100%);
+    radial-gradient(ellipse 80% 70% at 50% 40%, transparent 40%, rgba(244, 251, 252, 0.35) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, transparent 18%, transparent 72%, rgba(244, 251, 252, 0.55) 100%);
   transition: opacity 0.4s ease;
 }
 
@@ -79,7 +79,7 @@ body.is-booking .vignette {
   line-height: 1;
   color: var(--cream);
   text-align: center;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .nav {
@@ -136,7 +136,7 @@ body.is-booking .hero {
   letter-spacing: 0.04em;
   line-height: 0.95;
   margin-bottom: 0.85rem;
-  text-shadow: 0 4px 32px rgba(0, 0, 0, 0.65);
+  text-shadow: 0 2px 18px rgba(255, 255, 255, 0.75);
 }
 
 .lede {
@@ -217,7 +217,7 @@ body.is-booking .hint {
   display: flex;
   gap: 0.35rem;
   padding: 0.35rem;
-  background: rgba(5, 16, 20, 0.82);
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid var(--line);
   backdrop-filter: blur(12px);
 }
@@ -238,7 +238,7 @@ body.is-booking .hint {
 .mode-tab:hover {
   color: var(--cream);
   border-color: var(--line);
-  background: rgba(226, 244, 246, 0.06);
+  background: rgba(11, 47, 54, 0.06);
 }
 
 .mode-tab.is-active {
@@ -328,7 +328,7 @@ body.is-booking .hint {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(226, 244, 246, 0.35);
+  color: rgba(11, 47, 54, 0.35);
   white-space: nowrap;
   transition: color 0.25s ease;
 }
@@ -378,7 +378,7 @@ body.is-booking .hint {
 }
 
 .legend .dot.free {
-  background: rgba(226, 244, 246, 0.18);
+  background: rgba(11, 47, 54, 0.18);
 }
 
 .legend .dot.selected {
@@ -387,7 +387,7 @@ body.is-booking .hint {
 }
 
 .legend .dot.taken {
-  background: rgba(226, 244, 246, 0.06);
+  background: rgba(11, 47, 54, 0.06);
   opacity: 0.5;
 }
 
@@ -396,7 +396,7 @@ body.is-booking .hint {
   flex-direction: column;
   gap: 0.7rem;
   padding: 0.75rem 0.55rem 0.85rem;
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(11, 47, 54, 0.06);
   border: 1px solid var(--line);
 }
 
@@ -419,7 +419,7 @@ body.is-booking .hint {
 .screen-label {
   font-size: 0.68rem;
   letter-spacing: 0.32em;
-  color: rgba(226, 244, 246, 0.7);
+  color: rgba(11, 47, 54, 0.7);
 }
 
 .seat-map {
@@ -461,7 +461,7 @@ body.is-booking .hint {
   flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 0.15rem 0.15rem 0.28rem 0.28rem;
-  background: rgba(226, 244, 246, 0.14);
+  background: rgba(11, 47, 54, 0.14);
   color: transparent;
   font-size: 0;
   cursor: pointer;
@@ -497,7 +497,7 @@ body.is-booking .hint {
   opacity: 0.22;
   cursor: not-allowed;
   pointer-events: none;
-  background: rgba(226, 244, 246, 0.05);
+  background: rgba(11, 47, 54, 0.05);
 }
 
 .camera-status {
@@ -539,7 +539,7 @@ body.is-booking .hint {
 .preview-card {
   margin-top: auto;
   padding: 0.9rem 0.85rem;
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(11, 47, 54, 0.06);
   border: 1px solid var(--line);
   animation: previewIn 0.35s var(--ease-out);
 }
@@ -619,7 +619,7 @@ body.is-booking .hint {
   align-items: center;
   gap: 0.55rem;
   padding: 0.7rem 1.05rem;
-  background: rgba(5, 16, 20, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--line);
   font-size: 0.8rem;
   color: var(--cream);
@@ -657,7 +657,7 @@ body.is-booking .hint {
   z-index: 10;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at 50% 40%, #0a1c22 0%, var(--ink) 70%);
+  background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, var(--ink) 70%);
   transition: opacity 0.7s ease, visibility 0.7s ease;
 }
 
@@ -844,7 +844,7 @@ body.is-booking .hint {
     z-index: 2;
     margin-top: 0.35rem;
     padding: 0.75rem 0.7rem;
-    background: rgba(6, 18, 22, 0.96);
+    background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(12px);
   }
 
