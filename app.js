@@ -21,6 +21,9 @@ const loaderEl = document.getElementById("loader");
 const progressBar = document.getElementById("progress-bar");
 const loaderText = document.getElementById("loader-text");
 const btnAuto = document.getElementById("btn-auto");
+const btnTheme = document.getElementById("btn-theme");
+const themeLabel = document.getElementById("theme-label");
+const headlineEl = document.getElementById("headline");
 const tabTheater = document.getElementById("tab-theater");
 const tabBooking = document.getElementById("tab-booking");
 const bookingPanel = document.getElementById("booking-panel");
@@ -127,11 +130,81 @@ renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = QUALITY_OPTS.shadows;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 
-// Light cyan morning plate — bright day look
-const DAY = 0xf4fbfc;
+const THEME_PRESETS = {
+  light: {
+    bg: 0xf4fbfc,
+    fog: 0xe8f6f8,
+    fogDensity: 0.006,
+    exposure: 1.12,
+    hemiSky: 0xdff7fa,
+    hemiGround: 0xc5d5c8,
+    hemi: QUALITY === "low" ? 0.85 : 0.7,
+    moonColor: 0xfff6e8,
+    moon: 1.35,
+    frontColor: 0xfff2d8,
+    front: 18,
+    topColor: 0xe8f4ff,
+    top: 10,
+    entranceColor: 0xffe0b0,
+    entrance: 4,
+    fillColor: 0xd8f0f2,
+    fillTheater: 8,
+    fillBooking: 12,
+    glowTheater: 35,
+    glowBooking: 42,
+    spotTheater: 55,
+    spotBooking: 70,
+    lampScale: 0.7,
+    headline: "Take a seat in the light.",
+  },
+  dark: {
+    bg: 0x051014,
+    fog: 0x051014,
+    fogDensity: 0.014,
+    exposure: 0.95,
+    hemiSky: 0x1a3844,
+    hemiGround: 0x070e12,
+    hemi: QUALITY === "low" ? 0.35 : 0.28,
+    moonColor: 0xa8c8e0,
+    moon: 0.42,
+    frontColor: 0xffc078,
+    front: 32,
+    topColor: 0x88b8d8,
+    top: 14,
+    entranceColor: 0xffb070,
+    entrance: 7,
+    fillColor: 0x6ec8d0,
+    fillTheater: 6,
+    fillBooking: 10,
+    glowTheater: 55,
+    glowBooking: 70,
+    spotTheater: 90,
+    spotBooking: 110,
+    lampScale: 1.45,
+    headline: "Take a seat in the dark.",
+  },
+};
+
+function readStoredTheme() {
+  try {
+    const t = localStorage.getItem("vb-theme");
+    if (t === "dark" || t === "light") return t;
+  } catch (_) {
+    /* ignore */
+  }
+  return document.documentElement.getAttribute("data-theme") === "dark"
+    ? "dark"
+    : "light";
+}
+
+let theme = readStoredTheme();
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(DAY);
-scene.fog = new THREE.FogExp2(0xe8f6f8, 0.006);
+scene.background = new THREE.Color(THEME_PRESETS[theme].bg);
+scene.fog = new THREE.FogExp2(
+  THEME_PRESETS[theme].fog,
+  THEME_PRESETS[theme].fogDensity
+);
 
 const camera = new THREE.PerspectiveCamera(
   50,
@@ -172,15 +245,18 @@ function destroyBookingLenis() {
   bookingLenis = null;
 }
 
-// Soft daylight fill
+// Ambient + key lights (values driven by theme)
 const hemi = new THREE.HemisphereLight(
-  0xdff7fa,
-  0xc5d5c8,
-  QUALITY === "low" ? 0.85 : 0.7
+  THEME_PRESETS[theme].hemiSky,
+  THEME_PRESETS[theme].hemiGround,
+  THEME_PRESETS[theme].hemi
 );
 scene.add(hemi);
 
-const moon = new THREE.DirectionalLight(0xfff6e8, 1.35);
+const moon = new THREE.DirectionalLight(
+  THEME_PRESETS[theme].moonColor,
+  THEME_PRESETS[theme].moon
+);
 moon.position.set(14, 32, 10);
 moon.castShadow = QUALITY_OPTS.shadows;
 if (QUALITY_OPTS.shadows) {
@@ -193,32 +269,127 @@ if (QUALITY_OPTS.shadows) {
 }
 scene.add(moon);
 
-// Soft daylight keys (morning look — lamps stay subtle)
-const frontSpot = new THREE.SpotLight(0xfff2d8, 18, 55, Math.PI / 4.5, 0.55, 1.2);
+const frontSpot = new THREE.SpotLight(
+  THEME_PRESETS[theme].frontColor,
+  THEME_PRESETS[theme].front,
+  55,
+  Math.PI / 4.5,
+  0.55,
+  1.2
+);
 scene.add(frontSpot);
 scene.add(frontSpot.target);
 
-const topFocus = new THREE.SpotLight(0xe8f4ff, 10, 50, Math.PI / 3.2, 0.65, 1.2);
+const topFocus = new THREE.SpotLight(
+  THEME_PRESETS[theme].topColor,
+  THEME_PRESETS[theme].top,
+  50,
+  Math.PI / 3.2,
+  0.65,
+  1.2
+);
 scene.add(topFocus);
 scene.add(topFocus.target);
 
-const entranceGlow = new THREE.PointLight(0xffe0b0, 4, 28, 2);
+const entranceGlow = new THREE.PointLight(
+  THEME_PRESETS[theme].entranceColor,
+  THEME_PRESETS[theme].entrance,
+  28,
+  2
+);
 scene.add(entranceGlow);
 
 // Screen spill into the house
-const screenGlow = new THREE.PointLight(0xfff4e8, 35, 32, 1.35);
+const screenGlow = new THREE.PointLight(0xfff4e8, THEME_PRESETS[theme].glowTheater, 32, 1.35);
 scene.add(screenGlow);
 
-const screenSpot = new THREE.SpotLight(0xffffff, 55, 42, Math.PI / 2.6, 0.55, 1.15);
+const screenSpot = new THREE.SpotLight(
+  0xffffff,
+  THEME_PRESETS[theme].spotTheater,
+  42,
+  Math.PI / 2.6,
+  0.55,
+  1.15
+);
 scene.add(screenSpot);
 scene.add(screenSpot.target);
 
-// Mild cool fill over seats
-const interiorFill = new THREE.PointLight(0xd8f0f2, 8, 28, 1.8);
+const interiorFill = new THREE.PointLight(
+  THEME_PRESETS[theme].fillColor,
+  THEME_PRESETS[theme].fillTheater,
+  28,
+  1.8
+);
 scene.add(interiorFill);
+
+renderer.toneMappingExposure = THEME_PRESETS[theme].exposure;
 
 /** @type {THREE.Light[]} */
 const practicalLights = [];
+
+function themeLampScale() {
+  return THEME_PRESETS[theme].lampScale;
+}
+
+function registerPracticalLight(light) {
+  light.userData.baseIntensity = light.intensity;
+  light.intensity = light.userData.baseIntensity * themeLampScale();
+  practicalLights.push(light);
+  return light;
+}
+
+function applySceneTheme(nextTheme, { persist = true } = {}) {
+  theme = nextTheme === "dark" ? "dark" : "light";
+  const t = THEME_PRESETS[theme];
+  document.documentElement.setAttribute("data-theme", theme);
+  if (persist) {
+    try {
+      localStorage.setItem("vb-theme", theme);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  const dark = theme === "dark";
+  if (btnTheme) {
+    btnTheme.setAttribute("aria-pressed", String(dark));
+    btnTheme.setAttribute(
+      "aria-label",
+      dark ? "Switch to light mode" : "Switch to dark mode"
+    );
+  }
+  if (themeLabel) themeLabel.textContent = dark ? "Dark" : "Light";
+  if (headlineEl) headlineEl.textContent = t.headline;
+
+  scene.background.setHex(t.bg);
+  if (scene.fog) {
+    scene.fog.color.setHex(t.fog);
+    scene.fog.density = t.fogDensity;
+  }
+  renderer.toneMappingExposure = t.exposure;
+
+  hemi.color.setHex(t.hemiSky);
+  hemi.groundColor.setHex(t.hemiGround);
+  hemi.intensity = t.hemi;
+  moon.color.setHex(t.moonColor);
+  moon.intensity = t.moon;
+  frontSpot.color.setHex(t.frontColor);
+  frontSpot.intensity = t.front;
+  topFocus.color.setHex(t.topColor);
+  topFocus.intensity = t.top;
+  entranceGlow.color.setHex(t.entranceColor);
+  entranceGlow.intensity = t.entrance;
+  interiorFill.color.setHex(t.fillColor);
+  interiorFill.intensity =
+    mode === "booking" ? t.fillBooking : t.fillTheater;
+
+  for (const light of practicalLights) {
+    const base = light.userData.baseIntensity;
+    if (typeof base === "number") {
+      light.intensity = base * t.lampScale;
+    }
+  }
+}
 
 /** Cinema realism layer — curtains, exit lights, video-tinted spill */
 const cinema = {
@@ -390,24 +561,10 @@ function snapCameraTo(pos, target) {
   controls.update();
 }
 
-function isRoofObject(obj) {
-  // Hide rooftop / soffit so the house stays open from the orbit view
+/** Hide the mistaken giant mic/cylinder prop (named Beam in the GLB). */
+function isUnwantedProp(obj) {
   const name = (obj.name || "").toLowerCase();
-  if (
-    name === "soffit_ring" ||
-    name === "soffit_cove" ||
-    name === "roof" ||
-    name.startsWith("soffit_") ||
-    name.startsWith("roof_") ||
-    name.startsWith("roof_shell") ||
-    name.startsWith("cove_shell") ||
-    name === "soffit_anchor"
-  ) {
-    return true;
-  }
-  if (!obj.isMesh || !obj.material) return false;
-  const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-  return mats.some((m) => m && /mat_roof|mat_soffit/i.test(m.name || ""));
+  return name === "beam" || name.startsWith("beam.");
 }
 
 function meshMaterialKey(meshName, matName) {
@@ -659,12 +816,12 @@ function addPracticalLights(root) {
         scene.add(wash);
         scene.add(wash.target);
         wash.target.updateMatrixWorld();
-        practicalLights.push(wash);
+        registerPracticalLight(wash);
       } else {
         const bulb = new THREE.PointLight(0xffe6c4, 2.2, 9, 2);
         bulb.position.copy(world);
         scene.add(bulb);
-        practicalLights.push(bulb);
+        registerPracticalLight(bulb);
       }
       return;
     }
@@ -675,7 +832,7 @@ function addPracticalLights(root) {
       aisle.position.copy(world);
       aisle.position.y += 0.08;
       scene.add(aisle);
-      practicalLights.push(aisle);
+      registerPracticalLight(aisle);
       return;
     }
 
@@ -685,12 +842,16 @@ function addPracticalLights(root) {
       step.position.copy(world);
       step.position.y += 0.04;
       scene.add(step);
-      practicalLights.push(step);
+      registerPracticalLight(step);
       return;
     }
 
-    // Rooftop / cove removed for open morning view — skip cove practicals
-    if (n.startsWith("roof_cove") || n.startsWith("cove_")) {
+    if (n.startsWith("roof_cove") || n.startsWith("cove_") || n.startsWith("soffit_cove")) {
+      if (!QUALITY_OPTS.coveLights) return;
+      const cove = new THREE.PointLight(0xfff8f0, 1.6, 5, 2);
+      cove.position.copy(world);
+      scene.add(cove);
+      registerPracticalLight(cove);
       return;
     }
 
@@ -701,7 +862,7 @@ function addPracticalLights(root) {
       pool.position.copy(world);
       pool.position.y += 0.55;
       scene.add(pool);
-      practicalLights.push(pool);
+      registerPracticalLight(pool);
     }
   });
 
@@ -1387,7 +1548,7 @@ function setupCoveLights(root) {
     const cove = new THREE.PointLight(0xfff8f0, 2.4, 4.5, 2);
     cove.position.copy(world);
     scene.add(cove);
-    practicalLights.push(cove);
+    registerPracticalLight(cove);
   });
 }
 
@@ -1493,8 +1654,9 @@ function updateScreenGlowFromVideo(now) {
 
   const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   const bookingBoost = mode === "booking" ? 1.15 : 1;
-  const baseGlow = mode === "booking" ? 42 : 35;
-  const baseSpot = mode === "booking" ? 70 : 55;
+  const preset = THEME_PRESETS[theme];
+  const baseGlow = mode === "booking" ? preset.glowBooking : preset.glowTheater;
+  const baseSpot = mode === "booking" ? preset.spotBooking : preset.spotTheater;
   screenGlow.intensity = baseGlow * (0.52 + lum * 0.95) * bookingBoost;
   screenSpot.intensity = baseSpot * (0.48 + lum * 1.15) * bookingBoost;
 }
@@ -1767,7 +1929,7 @@ function applyMaterials(root) {
   scene.userData.screenTex = screenTex;
 
   root.traverse((child) => {
-    if (isRoofObject(child)) {
+    if (isUnwantedProp(child)) {
       child.visible = false;
       return;
     }
@@ -2195,7 +2357,7 @@ function setMode(next) {
   if (booking) {
     autoOrbit = false;
     btnAuto.setAttribute("aria-pressed", "false");
-    interiorFill.intensity = 12;
+    interiorFill.intensity = THEME_PRESETS[theme].fillBooking;
     animateCurtains(true, 1600);
     setBookingSteps("pick");
     previewCard.hidden = true;
@@ -2220,10 +2382,10 @@ function setMode(next) {
     viewToast.hidden = true;
     cameraStatus.hidden = true;
     isFlyingToSeat = false;
-    interiorFill.intensity = 8;
+    interiorFill.intensity = THEME_PRESETS[theme].fillTheater;
     animateCurtains(false, 1200);
-    screenGlow.intensity = 35;
-    screenSpot.intensity = 55;
+    screenGlow.intensity = THEME_PRESETS[theme].glowTheater;
+    screenSpot.intensity = THEME_PRESETS[theme].spotTheater;
     screenGlow.color.setHex(0xfff4e8);
     screenSpot.color.setHex(0xffffff);
     camera.fov = 50;
@@ -2238,7 +2400,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid21";
+const ASSET_VERSION = "vid23";
 const loader = new GLTFLoader();
 loader.load(
   `./textures/3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2253,7 +2415,8 @@ loader.load(
     buildProceduralCinemaLayer(modelRoot);
     updateScreenTarget(modelRoot);
     addPracticalLights(modelRoot);
-    // Cove lights skipped — rooftop / soffit hidden for open morning view
+    setupCoveLights(modelRoot);
+    applySceneTheme(theme, { persist: false });
 
     const fitted = fitCameraToObject(modelRoot);
     aimFocusLights(fitted.center, fitted.size);
@@ -2282,6 +2445,10 @@ tabTheater.addEventListener("click", () => setMode("theater"));
 tabBooking.addEventListener("click", () => {
   ensureScreenVideoPlaying();
   setMode("booking");
+});
+
+btnTheme?.addEventListener("click", () => {
+  applySceneTheme(theme === "dark" ? "light" : "dark");
 });
 
 btnAuto.addEventListener("click", () => {
@@ -2357,3 +2524,6 @@ function tick(now) {
 }
 
 requestAnimationFrame(tick);
+
+// Sync UI + scene with stored theme on boot
+applySceneTheme(theme, { persist: false });

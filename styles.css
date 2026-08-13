@@ -1,4 +1,5 @@
-:root {
+:root,
+html[data-theme="light"] {
   --ink: #f4fbfc;
   --cream: #0b2f36;
   --amber: #1aa8ab;
@@ -7,9 +8,38 @@
   --line: rgba(11, 47, 54, 0.14);
   --panel: rgba(255, 255, 255, 0.92);
   --panel-soft: rgba(232, 248, 250, 0.9);
+  --chrome: rgba(255, 255, 255, 0.82);
+  --toast: rgba(255, 255, 255, 0.92);
+  --loader-core: #ffffff;
+  --brand-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+  --headline-shadow: 0 2px 18px rgba(255, 255, 255, 0.75);
+  --vignette:
+    radial-gradient(ellipse 80% 70% at 50% 40%, transparent 40%, rgba(244, 251, 252, 0.35) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, transparent 18%, transparent 72%, rgba(244, 251, 252, 0.55) 100%);
+  --hover-fill: var(--hover-fill);
   --font-display: "Bebas Neue", Impact, sans-serif;
   --font-body: "Instrument Sans", Georgia, sans-serif;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-theme="dark"] {
+  --ink: #051014;
+  --cream: #e2f4f6;
+  --amber: #2ec4c6;
+  --amber-dim: #1a9a9c;
+  --muted: rgba(226, 244, 246, 0.62);
+  --line: rgba(226, 244, 246, 0.16);
+  --panel: rgba(6, 18, 22, 0.92);
+  --panel-soft: rgba(8, 28, 34, 0.9);
+  --chrome: rgba(5, 16, 20, 0.82);
+  --toast: rgba(6, 18, 22, 0.92);
+  --loader-core: #0a1c22;
+  --brand-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+  --headline-shadow: 0 4px 28px rgba(0, 0, 0, 0.55);
+  --vignette:
+    radial-gradient(ellipse 80% 70% at 50% 40%, transparent 40%, rgba(5, 16, 20, 0.55) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.35) 0%, transparent 18%, transparent 72%, rgba(5, 16, 20, 0.7) 100%);
+  --hover-fill: rgba(226, 244, 246, 0.06);
 }
 
 *,
@@ -27,6 +57,7 @@ body {
   background: var(--ink);
   color: var(--cream);
   font-family: var(--font-body);
+  transition: background 0.45s ease, color 0.35s ease;
 }
 
 button {
@@ -49,10 +80,8 @@ button {
   pointer-events: none;
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 80% 70% at 50% 40%, transparent 40%, rgba(244, 251, 252, 0.35) 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, transparent 18%, transparent 72%, rgba(244, 251, 252, 0.55) 100%);
-  transition: opacity 0.4s ease;
+  background: var(--vignette);
+  transition: opacity 0.4s ease, background 0.45s ease;
 }
 
 body.is-booking .vignette {
@@ -72,6 +101,64 @@ body.is-booking .vignette {
   pointer-events: none;
 }
 
+.theme-toggle {
+  position: absolute;
+  top: 50%;
+  left: 1.75rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.55rem 0.35rem 0.35rem;
+  border: 1px solid var(--line);
+  background: var(--chrome);
+  color: var(--cream);
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.theme-toggle-track {
+  position: relative;
+  width: 2.35rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: var(--hover-fill);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0.15rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: var(--amber);
+  transform: translateY(-50%);
+  transition: left 0.25s var(--ease-out);
+}
+
+html[data-theme="dark"] .theme-toggle-thumb {
+  left: calc(100% - 1rem);
+}
+
+.theme-toggle-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  min-width: 2.6rem;
+  text-align: left;
+}
+
 .brand {
   font-family: var(--font-display);
   font-size: clamp(2rem, 4vw, 2.75rem);
@@ -79,7 +166,7 @@ body.is-booking .vignette {
   line-height: 1;
   color: var(--cream);
   text-align: center;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+  text-shadow: var(--brand-shadow);
 }
 
 .nav {
@@ -136,7 +223,7 @@ body.is-booking .hero {
   letter-spacing: 0.04em;
   line-height: 0.95;
   margin-bottom: 0.85rem;
-  text-shadow: 0 2px 18px rgba(255, 255, 255, 0.75);
+  text-shadow: var(--headline-shadow);
 }
 
 .lede {
@@ -217,7 +304,7 @@ body.is-booking .hint {
   display: flex;
   gap: 0.35rem;
   padding: 0.35rem;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--chrome);
   border: 1px solid var(--line);
   backdrop-filter: blur(12px);
 }
@@ -238,7 +325,7 @@ body.is-booking .hint {
 .mode-tab:hover {
   color: var(--cream);
   border-color: var(--line);
-  background: rgba(11, 47, 54, 0.06);
+  background: var(--hover-fill);
 }
 
 .mode-tab.is-active {
@@ -387,7 +474,7 @@ body.is-booking .hint {
 }
 
 .legend .dot.taken {
-  background: rgba(11, 47, 54, 0.06);
+  background: var(--hover-fill);
   opacity: 0.5;
 }
 
@@ -396,7 +483,7 @@ body.is-booking .hint {
   flex-direction: column;
   gap: 0.7rem;
   padding: 0.75rem 0.55rem 0.85rem;
-  background: rgba(11, 47, 54, 0.06);
+  background: var(--hover-fill);
   border: 1px solid var(--line);
 }
 
@@ -539,7 +626,7 @@ body.is-booking .hint {
 .preview-card {
   margin-top: auto;
   padding: 0.9rem 0.85rem;
-  background: rgba(11, 47, 54, 0.06);
+  background: var(--hover-fill);
   border: 1px solid var(--line);
   animation: previewIn 0.35s var(--ease-out);
 }
@@ -619,7 +706,7 @@ body.is-booking .hint {
   align-items: center;
   gap: 0.55rem;
   padding: 0.7rem 1.05rem;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--toast);
   border: 1px solid var(--line);
   font-size: 0.8rem;
   color: var(--cream);
@@ -657,8 +744,8 @@ body.is-booking .hint {
   z-index: 10;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, var(--ink) 70%);
-  transition: opacity 0.7s ease, visibility 0.7s ease;
+  background: radial-gradient(ellipse at 50% 40%, var(--loader-core) 0%, var(--ink) 70%);
+  transition: opacity 0.7s ease, visibility 0.7s ease, background 0.45s ease;
 }
 
 .loader.is-done {
@@ -707,6 +794,21 @@ body.is-booking .hint {
   .brand {
     font-size: 1.45rem;
     letter-spacing: 0.06em;
+  }
+
+  .theme-toggle {
+    left: 0.75rem;
+    gap: 0.35rem;
+    padding: 0.28rem 0.4rem 0.28rem 0.28rem;
+  }
+
+  .theme-toggle-label {
+    display: none;
+  }
+
+  .theme-toggle-track {
+    width: 2.1rem;
+    height: 1.1rem;
   }
 
   .nav {
@@ -844,7 +946,7 @@ body.is-booking .hint {
     z-index: 2;
     margin-top: 0.35rem;
     padding: 0.75rem 0.7rem;
-    background: rgba(255, 255, 255, 0.96);
+    background: var(--toast);
     backdrop-filter: blur(12px);
   }
 

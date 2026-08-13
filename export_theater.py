@@ -42,6 +42,12 @@ for mat_name, strength in SOFT_EMISSION.items():
         if n.type == "BSDF_PRINCIPLED" and "Emission Strength" in n.inputs:
             n.inputs["Emission Strength"].default_value = strength
 
+# Remove the mistaken giant mic/cylinder prop (named Beam)
+beam = bpy.data.objects.get("Beam")
+if beam:
+    bpy.data.objects.remove(beam, do_unlink=True)
+    print("Removed Beam (unwanted mic/cylinder prop)")
+
 # Ensure Soffit_Ring is visible and in the export
 soffit = bpy.data.objects.get("Soffit_Ring")
 if soffit:
@@ -51,6 +57,14 @@ if soffit:
     print(f"OK  Soffit_Ring found  verts={len(soffit.data.vertices) if soffit.type == 'MESH' else '?'}")
 else:
     print("WARN  Soffit_Ring NOT found — roof will use website fallback until you add/name it")
+
+for roof_name in ("Roof", "Soffit_Cove"):
+    obj = bpy.data.objects.get(roof_name)
+    if obj:
+        obj.hide_set(False)
+        obj.hide_render = False
+        obj.hide_viewport = False
+        print(f"OK  {roof_name} visible")
 
 print("\nMesh objects:")
 for obj in sorted(bpy.data.objects, key=lambda o: o.name):

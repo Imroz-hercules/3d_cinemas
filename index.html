@@ -14,11 +14,24 @@
       href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=vid21" />
+    <link rel="stylesheet" href="styles.css?v=vid23" />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.css"
     />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("vb-theme");
+          document.documentElement.setAttribute(
+            "data-theme",
+            t === "dark" ? "dark" : "light"
+          );
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="canvas-wrap" aria-hidden="true">
@@ -27,6 +40,18 @@
     </div>
 
     <header class="site-header">
+      <button
+        type="button"
+        id="btn-theme"
+        class="theme-toggle"
+        aria-pressed="false"
+        aria-label="Switch to dark mode"
+      >
+        <span class="theme-toggle-track" aria-hidden="true">
+          <span class="theme-toggle-thumb"></span>
+        </span>
+        <span class="theme-toggle-label" id="theme-label">Light</span>
+      </button>
       <p class="brand">Visual Booking</p>
       <nav class="nav" id="explore-nav">
         <button type="button" id="btn-auto" class="nav-btn" aria-pressed="true">
@@ -36,7 +61,7 @@
     </header>
 
     <main class="hero" id="hero">
-      <h1 class="headline">Take a seat in the light.</h1>
+      <h1 class="headline" id="headline">Take a seat in the light.</h1>
     </main>
 
     <aside id="booking-panel" class="booking-panel" hidden>
@@ -153,6 +178,6 @@
         }
       }
     </script>
-    <script type="module" src="app.js?v=vid21"></script>
+    <script type="module" src="app.js?v=vid23"></script>
   </body>
 </html>
