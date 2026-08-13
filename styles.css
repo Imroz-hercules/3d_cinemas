@@ -88,6 +88,26 @@ body.is-booking .vignette {
   opacity: 0.22;
 }
 
+body.is-intro .hero,
+body.is-intro .mode-tabs,
+body.is-intro .theme-toggle,
+body.is-intro .nav,
+body.is-intro .hint,
+body.is-intro .brand {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.hero,
+.mode-tabs,
+.theme-toggle,
+.nav,
+.hint,
+.brand {
+  transition: opacity 0.75s var(--ease-out), transform 0.75s var(--ease-out),
+    border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
 .site-header {
   position: fixed;
   top: 0;

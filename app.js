@@ -414,6 +414,7 @@ let selectedSeatName = null;
 let highlightMat = null;
 let modelReady = false;
 let isFlyingToSeat = false;
+let introPlaying = false;
 /** Starting orbit distance — zoom-out stops here; zoom-in still works */
 let homeDistance = 28;
 
@@ -719,7 +720,7 @@ function isMobileView() {
   return window.innerWidth <= 720 || window.innerHeight / window.innerWidth > 1.15;
 }
 
-function fitCameraToObject(object) {
+function fitCameraToObject(object, { snap = true } = {}) {
   const box = getTheaterFocusBox(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -754,10 +755,79 @@ function fitCameraToObject(object) {
   camera.fov = mobile ? 56 : 50;
   camera.updateProjectionMatrix();
 
-  camera.position.copy(defaultCam);
-  controls.target.copy(defaultTarget);
-  controls.update();
+  if (snap) {
+    camera.position.copy(defaultCam);
+    controls.target.copy(defaultTarget);
+    controls.update();
+  }
   return { size, center, maxDim };
+}
+
+/**
+ * Opening shot: start far above the house, arc in, settle at home orbit.
+ */
+function playIntroCamera(fitted) {
+  const { size, center } = fitted;
+  const endPos = defaultCam.clone();
+  const endTarget = defaultTarget.clone();
+  const homeDist = Math.max(8, endPos.distanceTo(endTarget));
+  const mobile = isMobileView();
+
+  const dir = endPos.clone().sub(endTarget);
+  if (dir.lengthSq() < 0.001) dir.set(0.5, 0.45, 0.55);
+  dir.normalize();
+
+  const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+  if (side.lengthSq() < 0.001) side.set(1, 0, 0);
+  side.normalize();
+
+  const farMul = mobile ? 3.6 : 3.15;
+  const startPos = endTarget
+    .clone()
+    .addScaledVector(dir, homeDist * farMul)
+    .add(new THREE.Vector3(0, homeDist * (mobile ? 1.05 : 0.9), 0))
+    .addScaledVector(side, homeDist * -0.55);
+
+  const midPos = endTarget
+    .clone()
+    .addScaledVector(dir, homeDist * 1.75)
+    .add(new THREE.Vector3(0, homeDist * 0.38, 0))
+    .addScaledVector(side, homeDist * 0.28);
+
+  const startTarget = new THREE.Vector3(
+    center.x,
+    center.y + size.y * 0.15,
+    center.z
+  );
+  const midTarget = endTarget.clone().lerp(startTarget, 0.4);
+
+  introPlaying = true;
+  autoOrbit = false;
+  btnAuto.setAttribute("aria-pressed", "false");
+  controls.enabled = false;
+  document.body.classList.add("is-intro");
+
+  snapCameraTo(startPos, startTarget);
+
+  animateCameraPath(
+    [
+      { pos: startPos, target: startTarget },
+      { pos: midPos, target: midTarget },
+      { pos: endPos, target: endTarget },
+    ],
+    mobile ? 3800 : 4500,
+    () => {
+      introPlaying = false;
+      document.body.classList.remove("is-intro");
+      camera.position.copy(endPos);
+      controls.target.copy(endTarget);
+      applyHomeZoomLimits();
+      controls.enabled = true;
+      autoOrbit = true;
+      btnAuto.setAttribute("aria-pressed", "true");
+      controls.update();
+    }
+  );
 }
 
 function aimFocusLights(center, size) {
@@ -2362,6 +2432,7 @@ function pickDefaultSeat() {
 }
 
 function setMode(next) {
+  if (introPlaying) return;
   if (!modelReady && next === "booking") {
     alert("Please wait — theater is still loading.");
     return;
@@ -2422,7 +2493,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid24";
+const ASSET_VERSION = "vid25";
 const loader = new GLTFLoader();
 loader.load(
   `./textures/3d_theater.glb?v=${ASSET_VERSION}`,
@@ -2440,7 +2511,7 @@ loader.load(
     setupCoveLights(modelRoot);
     applySceneTheme(theme, { persist: false });
 
-    const fitted = fitCameraToObject(modelRoot);
+    const fitted = fitCameraToObject(modelRoot, { snap: false });
     aimFocusLights(fitted.center, fitted.size);
     aimScreenLights();
     renderSeatMap();
@@ -2449,7 +2520,10 @@ loader.load(
 
     loaderText.textContent = "Ready";
     progressBar.style.width = "100%";
-    setTimeout(() => loaderEl.classList.add("is-done"), 350);
+    setTimeout(() => {
+      loaderEl.classList.add("is-done");
+      playIntroCamera(fitted);
+    }, 280);
   },
   (event) => {
     if (!event.total) return;
@@ -2474,7 +2548,7 @@ btnTheme?.addEventListener("click", () => {
 });
 
 btnAuto.addEventListener("click", () => {
-  if (mode === "booking") return;
+  if (mode === "booking" || introPlaying) return;
   autoOrbit = !autoOrbit;
   btnAuto.setAttribute("aria-pressed", String(autoOrbit));
 });
@@ -2494,6 +2568,7 @@ btnRefocus.addEventListener("click", () => {
 
 controls.addEventListener("start", () => {
   ensureScreenVideoPlaying();
+  if (introPlaying) return;
   if (mode === "theater") {
     autoOrbit = false;
     btnAuto.setAttribute("aria-pressed", "false");
@@ -2532,7 +2607,7 @@ function tick(now) {
   updateCurtainAnim(now);
   if (modelReady) updateScreenGlowFromVideo(now);
   // Video GPU uploads are driven by requestVideoFrameCallback — not every rAF
-  if (autoOrbit && mode === "theater" && modelRoot && !cameraTween) {
+  if (autoOrbit && mode === "theater" && modelRoot && !cameraTween && !introPlaying) {
     _orbitOffset.copy(camera.position).sub(controls.target);
     _orbitSpherical.setFromVector3(_orbitOffset);
     _orbitSpherical.theta += 0.0012;
