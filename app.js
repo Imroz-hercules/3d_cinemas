@@ -561,10 +561,34 @@ function snapCameraTo(pos, target) {
   controls.update();
 }
 
-/** Hide the mistaken giant mic/cylinder prop (named Beam in the GLB). */
+/** Remove mistaken props: Beam (mic cylinder) and solid Roof lid. Keep Soffit_Ring. */
 function isUnwantedProp(obj) {
   const name = (obj.name || "").toLowerCase();
-  return name === "beam" || name.startsWith("beam.");
+  return (
+    name === "beam" ||
+    name.startsWith("beam.") ||
+    name === "roof" ||
+    name === "roof_lid" ||
+    name === "roof_top" ||
+    name === "roof_shell"
+  );
+}
+
+function stripUnwantedProps(root) {
+  const doomed = [];
+  root.traverse((obj) => {
+    if (isUnwantedProp(obj)) doomed.push(obj);
+  });
+  for (const obj of doomed) {
+    obj.visible = false;
+    obj.removeFromParent();
+    if (obj.isMesh) {
+      obj.geometry?.dispose?.();
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) m?.dispose?.();
+    }
+    console.log(`[Visual Booking] Removed unwanted mesh: ${obj.name || "(unnamed)"}`);
+  }
 }
 
 function meshMaterialKey(meshName, matName) {
@@ -1928,11 +1952,9 @@ function applyMaterials(root) {
   const screenTex = makeScreenMovieTexture();
   scene.userData.screenTex = screenTex;
 
+  stripUnwantedProps(root);
+
   root.traverse((child) => {
-    if (isUnwantedProp(child)) {
-      child.visible = false;
-      return;
-    }
     if (!child.isMesh) return;
     // Shadows only on large structure — seats/props skip casting on low/med for FPS
     const n = (child.name || "").toLowerCase();
@@ -2400,7 +2422,7 @@ function setMode(next) {
   }
 }
 
-const ASSET_VERSION = "vid23";
+const ASSET_VERSION = "vid24";
 const loader = new GLTFLoader();
 loader.load(
   `./textures/3d_theater.glb?v=${ASSET_VERSION}`,
